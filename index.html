@@ -94,6 +94,16 @@ textarea.form-input{resize:vertical;min-height:80px}
 .sync-stat:last-child{border-bottom:none}
 .motivation-box{background:var(--amber-light);border:1px solid var(--amber);border-radius:var(--radius);padding:16px;margin-bottom:14px}
 .motivation-box p{font-size:15px;line-height:1.6;color:var(--gray-dark);font-style:italic;text-align:center}
+.chart-view-btn{padding:4px 10px;border-radius:20px;border:1px solid var(--border);background:var(--white);color:var(--gray);font-size:11px;font-weight:500;cursor:pointer;transition:all .15s}
+.chart-view-btn.active{background:var(--green);color:white;border-color:var(--green)}
+.time-slot{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.time-slot-label{font-size:11px;color:var(--gray);width:56px;text-align:right;flex-shrink:0}
+.time-slot-bar-wrap{flex:1;height:22px;background:var(--gray-light);border-radius:4px;overflow:hidden;position:relative}
+.time-slot-bar{height:100%;border-radius:4px;transition:width .4s ease;display:flex;align-items:center;justify-content:flex-end;padding-right:6px}
+.time-slot-count{font-size:10px;font-weight:600;color:white}
+.time-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.visit-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px}
+.visit-row:last-child{border-bottom:none}
 </style>
 </head>
 <body>
@@ -114,8 +124,20 @@ textarea.form-input{resize:vertical;min-height:80px}
     <div class="kpi blue"><div class="kpi-val" id="kpi-sessions">0</div><div class="kpi-label">Sessions</div></div>
   </div>
   <div class="card">
-    <div class="card-title">Last 7 Days — Distance (km)</div>
-    <canvas id="chart-weekly" height="160"></canvas>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span class="card-title" style="margin-bottom:0">Distance (km)</span>
+      <div style="display:flex;gap:6px">
+        <button class="chart-view-btn active" id="btn-view-7d"  onclick="setChartView('7d')">7D</button>
+        <button class="chart-view-btn"        id="btn-view-30d" onclick="setChartView('30d')">30D</button>
+        <button class="chart-view-btn"        id="btn-view-mon" onclick="setChartView('monthly')">Monthly</button>
+      </div>
+    </div>
+    <div id="chart-range-label" style="font-size:11px;color:var(--gray);margin-bottom:8px;text-align:center"></div>
+    <canvas id="chart-weekly" height="180"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-title">Gym Visit Time — When do you go?</div>
+    <div id="gym-time-visual"></div>
   </div>
   <div class="card">
     <div class="card-title">This Week Streak</div>
@@ -360,35 +382,194 @@ function hideSyncBar(){ setTimeout(()=>{ document.getElementById('sync-bar').sty
 // DASHBOARD
 // ═══════════════════════════════════════════
 let weeklyChart = null
+let currentChartView = '7d'
+
+function setChartView(view){
+  currentChartView = view
+  document.querySelectorAll('.chart-view-btn').forEach(b=>b.classList.remove('active'))
+  const btnMap = {'7d':'btn-view-7d','30d':'btn-view-30d','monthly':'btn-view-mon'}
+  document.getElementById(btnMap[view]).classList.add('active')
+  renderChart()
+}
+
+function renderChart(){
+  const tm = getData('treadmill')
+  const view = currentChartView
+  let labels = [], kms = [], rangeLabel = ''
+
+  if(view === '7d'){
+    for(let i=6;i>=0;i--){
+      const d=new Date(); d.setDate(d.getDate()-i)
+      const k=d.toISOString().split('T')[0]
+      labels.push(d.getDate()+' '+d.toLocaleDateString('en',{month:'short'}))
+      kms.push(parseFloat(tm.filter(r=>r.date===k).reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(2)))
+    }
+    rangeLabel = 'Last 7 days'
+  } else if(view === '30d'){
+    for(let i=29;i>=0;i--){
+      const d=new Date(); d.setDate(d.getDate()-i)
+      const k=d.toISOString().split('T')[0]
+      labels.push(i%5===0||i===0 ? d.getDate()+'/'+( d.getMonth()+1) : '')
+      kms.push(parseFloat(tm.filter(r=>r.date===k).reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(2)))
+    }
+    rangeLabel = 'Last 30 days'
+  } else {
+    // monthly — last 6 months
+    for(let i=5;i>=0;i--){
+      const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-i)
+      const yr=d.getFullYear(), mo=d.getMonth()
+      const monthKm = tm.filter(r=>{
+        if(!r.date) return false
+        const rd=new Date(r.date); return rd.getFullYear()===yr && rd.getMonth()===mo
+      }).reduce((s,r)=>s+parseFloat(r.km||0),0)
+      labels.push(d.toLocaleDateString('en',{month:'short',year:'2-digit'}))
+      kms.push(parseFloat(monthKm.toFixed(2)))
+    }
+    rangeLabel = 'Last 6 months'
+  }
+
+  document.getElementById('chart-range-label').textContent = rangeLabel
+
+  const ctx = document.getElementById('chart-weekly').getContext('2d')
+  if(weeklyChart) weeklyChart.destroy()
+  weeklyChart = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels,
+      datasets:[{
+        data:kms,
+        backgroundColor: kms.map(v=>v>0?'rgba(29,158,117,0.3)':'rgba(209,209,199,0.3)'),
+        borderColor:      kms.map(v=>v>0?'#1D9E75':'#B4B2A9'),
+        borderWidth:2, borderRadius:4
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{display:false},
+        tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y} km`}}
+      },
+      scales:{
+        y:{beginAtZero:true,ticks:{font:{size:10}},grid:{color:'rgba(0,0,0,0.04)'}},
+        x:{ticks:{font:{size:10},maxRotation:0},grid:{display:false}}
+      }
+    }
+  })
+}
+
+function renderGymTimeVisual(){
+  const tm = getData('treadmill')
+  const container = document.getElementById('gym-time-visual')
+  if(!tm.length){ container.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:var(--gray);font-size:13px">No sessions logged yet</div>'; return }
+
+  // slots: Early Bird <6am, Morning 6-9, Mid-Morning 9-11, Afternoon 11-14, Evening 14-17, Night 17+
+  const slots = [
+    {label:'Before 6am', key:'early',  color:'#534AB7', range:[0,6]},
+    {label:'6–9 am',     key:'morn',   color:'#1D9E75', range:[6,9]},
+    {label:'9–11 am',    key:'mid',    color:'#0F6E56', range:[9,11]},
+    {label:'11am–2pm',   key:'noon',   color:'#EF9F27', range:[11,14]},
+    {label:'2–5 pm',     key:'aft',    color:'#D85A30', range:[14,17]},
+    {label:'After 5pm',  key:'eve',    color:'#185FA5', range:[17,24]},
+  ]
+
+  // count sessions per slot
+  const counts = {}
+  slots.forEach(s=>counts[s.key]=0)
+
+  // recent visits list
+  const visits = []
+
+  tm.forEach(r=>{
+    // use image timestamp if available, else use session time field
+    const timeStr = r.imgTimestamp || r.time || ''
+    if(!timeStr) return
+    const parts = timeStr.split(':')
+    if(parts.length < 2) return
+    const hour = parseInt(parts[0])
+    if(isNaN(hour)) return
+    const slot = slots.find(s=>hour>=s.range[0] && hour<s.range[1])
+    if(slot) counts[slot.key]++
+    visits.push({date:r.date, time:timeStr, hour, source: r.imgTimestamp?'📸 Photo timestamp':'⌚ Logged time'})
+  })
+
+  const maxCount = Math.max(...Object.values(counts), 1)
+
+  // best time label
+  const bestSlot = slots.reduce((a,b)=>counts[a.key]>=counts[b.key]?a:b)
+  const bestCount = counts[bestSlot.key]
+
+  let html = ''
+
+  // motivation message
+  const earlySessions = counts['early'] + counts['morn'] + counts['mid']
+  const totalSessions = tm.length
+  const earlyPct = totalSessions > 0 ? Math.round(earlySessions/totalSessions*100) : 0
+
+  let msg = '', msgColor = ''
+  if(earlyPct >= 70){ msg=`🌅 Amazing! You're an early bird — ${earlyPct}% of your sessions before 11am!`; msgColor='var(--green-dark)' }
+  else if(earlyPct >= 40){ msg='🌤 Good mix! Try pushing more sessions before 9am for best results.'; msgColor='var(--amber)' }
+  else { msg='🌙 Most sessions are later in the day. Morning workouts boost metabolism all day!'; msgColor='var(--coral)' }
+
+  html += `<div style="font-size:13px;color:${msgColor};font-weight:500;margin-bottom:12px;padding:10px;background:var(--gray-light);border-radius:var(--radius-sm)">${msg}</div>`
+
+  // bar chart by time slot
+  html += '<div style="margin-bottom:14px">'
+  slots.forEach(s=>{
+    const cnt = counts[s.key]
+    const pct = maxCount > 0 ? Math.round(cnt/maxCount*100) : 0
+    const isBest = s.key === bestSlot.key && bestCount > 0
+    html += `<div class="time-slot">
+      <div class="time-slot-label">${s.label}</div>
+      <div class="time-slot-bar-wrap">
+        <div class="time-slot-bar" style="width:${Math.max(pct,cnt>0?8:0)}%;background:${s.color}${isBest?'':'99'}">
+          ${cnt>0?`<span class="time-slot-count">${cnt}</span>`:''}
+        </div>
+      </div>
+      ${isBest && bestCount>0 ? '<span style="font-size:10px;color:'+s.color+';font-weight:600">← most</span>' : '<span style="width:40px"></span>'}
+    </div>`
+  })
+  html += '</div>'
+
+  // recent visits with timestamp
+  const recent = visits.sort((a,b)=>new Date(b.date+' '+b.time)-new Date(a.date+' '+a.time)).slice(0,5)
+  if(recent.length){
+    html += '<div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Recent visits</div>'
+    recent.forEach(v=>{
+      const d = v.date ? new Date(v.date).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}) : '—'
+      const hr = v.hour
+      const isEarly = hr < 9
+      const dot = isEarly ? '#1D9E75' : hr < 14 ? '#EF9F27' : '#D85A30'
+      html += `<div class="visit-row">
+        <div class="time-dot" style="background:${dot}"></div>
+        <span style="flex:1;font-weight:500">${d}</span>
+        <span style="color:var(--gray)">${v.time}</span>
+        <span style="font-size:10px;color:var(--gray);margin-left:6px">${v.source}</span>
+      </div>`
+    })
+  }
+
+  container.innerHTML = html
+}
 
 function updateDashboard(){
   const tm = getData('treadmill')
   const wo = getData('workouts')
-  document.getElementById('kpi-km').textContent      = tm.reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(1)
-  document.getElementById('kpi-cal').textContent     = tm.reduce((s,r)=>s+parseInt(r.cal||0),0).toLocaleString()
-  document.getElementById('kpi-time').textContent    = tm.reduce((s,r)=>s+parseInt(r.dur||0),0)
-  document.getElementById('kpi-sessions').textContent= tm.length
-  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})
+  document.getElementById('kpi-km').textContent       = tm.reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(1)
+  document.getElementById('kpi-cal').textContent      = tm.reduce((s,r)=>s+parseInt(r.cal||0),0).toLocaleString()
+  document.getElementById('kpi-time').textContent     = tm.reduce((s,r)=>s+parseInt(r.dur||0),0)
+  document.getElementById('kpi-sessions').textContent = tm.length
+  document.getElementById('header-date').textContent  = new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})
 
-  // chart
-  const days=[], kms=[]
-  for(let i=6;i>=0;i--){
-    const d=new Date(); d.setDate(d.getDate()-i)
-    const k=d.toISOString().split('T')[0]
-    days.push(d.toLocaleDateString('en',{weekday:'short'}))
-    kms.push(parseFloat(tm.filter(r=>r.date===k).reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(2)))
-  }
-  const ctx = document.getElementById('chart-weekly').getContext('2d')
-  if(weeklyChart) weeklyChart.destroy()
-  weeklyChart = new Chart(ctx,{type:'bar',data:{labels:days,datasets:[{data:kms,backgroundColor:'rgba(29,158,117,0.25)',borderColor:'#1D9E75',borderWidth:2,borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},x:{ticks:{font:{size:11}},grid:{display:false}}}}})
+  renderChart()
+  renderGymTimeVisual()
 
   // streak
-  const sb = document.getElementById('streak-bar'); sb.innerHTML=''
-  const dn = ['M','T','W','T','F','S','S']
+  const sb=document.getElementById('streak-bar'); sb.innerHTML=''
+  const dn=['M','T','W','T','F','S','S']
   for(let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i)
     const k=d.toISOString().split('T')[0]
-    const ok = tm.some(r=>r.date===k)||wo.some(r=>r.date===k)
+    const ok=tm.some(r=>r.date===k)||wo.some(r=>r.date===k)
     const dot=document.createElement('div')
     dot.className='streak-dot'+(ok?' done':(i===0?' today':''))
     dot.textContent=dn[d.getDay()===0?6:d.getDay()-1]
@@ -519,6 +700,25 @@ let currentB64 = null
 function handlePhoto(e){
   const file = e.target.files[0]
   if(!file) return
+
+  // capture system timestamp from file metadata
+  const fileDate = file.lastModified ? new Date(file.lastModified) : new Date()
+  const imgTimestamp = fileDate.toTimeString().slice(0,5)  // HH:MM
+  const imgDate      = fileDate.toISOString().split('T')[0] // YYYY-MM-DD
+
+  // auto-fill date and time from photo file timestamp
+  document.getElementById('t-date').value = imgDate
+  document.getElementById('t-time').value = imgTimestamp
+
+  // store for use when saving
+  window._imgTimestamp = imgTimestamp
+  window._imgDate      = imgDate
+
+  // show timestamp info
+  const formattedTime = fileDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})
+  const formattedDate = fileDate.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short',year:'numeric'})
+  showToast('📸 Photo taken: '+formattedDate+' at '+formattedTime)
+
   const reader = new FileReader()
   reader.onload = function(ev){
     const b64 = ev.target.result
@@ -632,7 +832,9 @@ async function saveTreadmill(){
     km, cal:document.getElementById('t-cal').value,
     dur:document.getElementById('t-dur').value,
     spd:document.getElementById('t-spd').value,
-    notes:document.getElementById('t-notes').value
+    notes:document.getElementById('t-notes').value,
+    imgTimestamp: window._imgTimestamp || document.getElementById('t-time').value,
+    imgDate:      window._imgDate      || date
   }
   const arr = getData('treadmill'); arr.unshift(rec); setData('treadmill',arr)
   showToast('✅ Session saved!')
@@ -643,6 +845,8 @@ async function saveTreadmill(){
   document.getElementById('photo-camera').value=''
   document.getElementById('photo-gallery').value=''
   currentB64=null
+  window._imgTimestamp=null
+  window._imgDate=null
   // sync in background
   showSyncBar('⏳ Syncing to Google Sheet...','#0C447C','#E6F1FB')
   const ok = await syncRecord(rec)
