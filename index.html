@@ -579,97 +579,124 @@ function renderChart(){
 
 function renderGymTimeVisual(){
   const tm = getData('treadmill')
+  const wo = getData('workouts')
   const container = document.getElementById('gym-time-visual')
-  if(!tm.length){ container.innerHTML='<div class="empty" style="padding:16px;text-align:center;color:var(--gray);font-size:13px">No sessions logged yet</div>'; return }
 
-  // slots: Early Bird <6am, Morning 6-9, Mid-Morning 9-11, Afternoon 11-14, Evening 14-17, Night 17+
-  const slots = [
-    {label:'Before 6am', key:'early',  color:'#534AB7', range:[0,6]},
-    {label:'6–9 am',     key:'morn',   color:'#1D9E75', range:[6,9]},
-    {label:'9–11 am',    key:'mid',    color:'#0F6E56', range:[9,11]},
-    {label:'11am–2pm',   key:'noon',   color:'#EF9F27', range:[11,14]},
-    {label:'2–5 pm',     key:'aft',    color:'#D85A30', range:[14,17]},
-    {label:'After 5pm',  key:'eve',    color:'#185FA5', range:[17,24]},
+  // combine treadmill + workout sessions
+  const allSessions = [
+    ...tm.map(r=>({date:r.date, time:r.time, hasPhoto:!!(r.imgTimestamp && r.imgTimestamp !== r.time), type:'treadmill'})),
+    ...wo.map(r=>({date:r.date, time:r.time, hasPhoto:false, type:'workout'}))
   ]
 
-  // count sessions per slot
+  if(!allSessions.length){
+    container.innerHTML='<div style="padding:20px;text-align:center;color:var(--gray);font-size:13px">No sessions logged yet — start tracking!</div>'
+    return
+  }
+
+  const slots = [
+    {label:'Before 6am', key:'early', r:[0,6],   hex:'#534AB7', rgba:'rgba(83,74,183,'},
+    {label:'6 – 9 am',   key:'morn',  r:[6,9],   hex:'#1D9E75', rgba:'rgba(29,158,117,'},
+    {label:'9 – 11 am',  key:'mid',   r:[9,11],  hex:'#0F6E56', rgba:'rgba(15,110,86,'},
+    {label:'11am – 2pm', key:'noon',  r:[11,14], hex:'#EF9F27', rgba:'rgba(239,159,39,'},
+    {label:'2 – 5 pm',   key:'aft',   r:[14,17], hex:'#D85A30', rgba:'rgba(216,90,48,'},
+    {label:'After 5pm',  key:'eve',   r:[17,24], hex:'#185FA5', rgba:'rgba(24,95,165,'},
+  ]
+
+  // count + build visits list
   const counts = {}
   slots.forEach(s=>counts[s.key]=0)
-
-  // recent visits list
   const visits = []
 
-  tm.forEach(r=>{
-    // use image timestamp if available, else use session time field
-    const timeStr = r.imgTimestamp || r.time || ''
-    if(!timeStr) return
-    const parts = timeStr.split(':')
+  allSessions.forEach(r=>{
+    const t = (r.time||'').trim()
+    if(!t) return
+    const parts = t.split(':')
     if(parts.length < 2) return
     const hour = parseInt(parts[0])
-    if(isNaN(hour)) return
-    const slot = slots.find(s=>hour>=s.range[0] && hour<s.range[1])
+    if(isNaN(hour)||hour<0||hour>23) return
+    const slot = slots.find(s=>hour>=s.r[0]&&hour<s.r[1])
     if(slot) counts[slot.key]++
-    visits.push({date:r.date, time:timeStr, hour, source: r.imgTimestamp?'📸 Photo timestamp':'⌚ Logged time'})
+    visits.push({
+      date:r.date, time:t, hour,
+      type:r.type,
+      source:r.hasPhoto?'📸 photo':'⌚ manual'
+    })
   })
 
+  const total = allSessions.filter(r=>(r.time||'').trim()).length
   const maxCount = Math.max(...Object.values(counts), 1)
-
-  // best time label
-  const bestSlot = slots.reduce((a,b)=>counts[a.key]>=counts[b.key]?a:b)
-  const bestCount = counts[bestSlot.key]
-
-  let html = ''
+  const bestKey = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0][0]
+  const bestSlot = slots.find(s=>s.key===bestKey)
 
   // motivation message
-  const earlySessions = counts['early'] + counts['morn'] + counts['mid']
-  const totalSessions = tm.length
-  const earlyPct = totalSessions > 0 ? Math.round(earlySessions/totalSessions*100) : 0
+  const earlySessions = (counts['early']||0)+(counts['morn']||0)+(counts['mid']||0)
+  const earlyPct = total>0 ? Math.round(earlySessions/total*100) : 0
+  let msg='', msgBg='', msgColor=''
+  if(earlyPct>=70){
+    msg=`🌅 Early bird! ${earlyPct}% of sessions before 11am — keep it up!`
+    msgBg='#E1F5EE'; msgColor='#085041'
+  } else if(earlyPct>=40){
+    msg=`🌤 Good mix! ${earlyPct}% sessions before 11am. Push for morning sessions for best results.`
+    msgBg='#FAEEDA'; msgColor='#633806'
+  } else {
+    msg=`🌙 Most sessions are later in the day. Morning workouts boost your metabolism all day!`
+    msgBg='#FAECE7'; msgColor='#4A1B0C'
+  }
 
-  let msg = '', msgColor = ''
-  if(earlyPct >= 70){ msg=`🌅 Amazing! You're an early bird — ${earlyPct}% of your sessions before 11am!`; msgColor='var(--green-dark)' }
-  else if(earlyPct >= 40){ msg='🌤 Good mix! Try pushing more sessions before 9am for best results.'; msgColor='var(--amber)' }
-  else { msg='🌙 Most sessions are later in the day. Morning workouts boost metabolism all day!'; msgColor='var(--coral)' }
+  let html = `<div style="font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:14px;background:${msgBg};color:${msgColor};line-height:1.5">${msg}</div>`
 
-  html += `<div style="font-size:13px;color:${msgColor};font-weight:500;margin-bottom:12px;padding:10px;background:var(--gray-light);border-radius:var(--radius-sm)">${msg}</div>`
-
-  // bar chart by time slot
-  html += '<div style="margin-bottom:14px">'
+  // bar chart
+  html += '<div style="margin-bottom:16px">'
   slots.forEach(s=>{
     const cnt = counts[s.key]
-    const pct = maxCount > 0 ? Math.round(cnt/maxCount*100) : 0
-    const isBest = s.key === bestSlot.key && bestCount > 0
-    html += `<div class="time-slot">
-      <div class="time-slot-label">${s.label}</div>
-      <div class="time-slot-bar-wrap">
-        <div class="time-slot-bar" style="width:${Math.max(pct,cnt>0?8:0)}%;background:${s.color}${isBest?'':'99'}">
-          ${cnt>0?`<span class="time-slot-count">${cnt}</span>`:''}
+    const pct = Math.round((cnt/maxCount)*100)
+    const isBest = s.key===bestKey && cnt>0
+    const barColor = isBest ? s.hex : s.rgba+'0.45)'
+    const textColor = isBest ? 'white' : s.hex
+
+    html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <div style="font-size:11px;color:var(--gray);width:72px;text-align:right;flex-shrink:0">${s.label}</div>
+      <div style="flex:1;height:24px;background:var(--gray-light);border-radius:4px;overflow:hidden;position:relative">
+        <div style="height:100%;width:${cnt>0?Math.max(pct,6):0}%;background:${barColor};border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;transition:width .4s ease">
+          ${cnt>0?`<span style="font-size:11px;font-weight:600;color:${isBest?'white':s.hex}">${cnt}</span>`:''}
         </div>
+        ${cnt===0?'<span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--gray)">0</span>':''}
       </div>
-      ${isBest && bestCount>0 ? '<span style="font-size:10px;color:'+s.color+';font-weight:600">← most</span>' : '<span style="width:40px"></span>'}
+      <div style="font-size:10px;width:36px;color:${s.hex};font-weight:600;flex-shrink:0">${isBest&&cnt>0?'← best':''}</div>
     </div>`
   })
   html += '</div>'
 
-  // recent visits with timestamp
-  const recent = visits.sort((a,b)=>new Date(b.date+' '+b.time)-new Date(a.date+' '+a.time)).slice(0,5)
+  // summary line
+  html += `<div style="font-size:12px;color:var(--gray);margin-bottom:12px;text-align:center">${total} total sessions tracked</div>`
+
+  // recent 6 visits
+  const recent = visits
+    .sort((a,b)=>{
+      const da=parseLocalDate(a.date), db=parseLocalDate(b.date)
+      return db-da || (b.time||'').localeCompare(a.time||'')
+    })
+    .slice(0,6)
+
   if(recent.length){
     html += '<div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Recent visits</div>'
     recent.forEach(v=>{
-      const d = v.date ? fmtDate(v.date,{weekday:'short',day:'numeric',month:'short'}) : '—'
-      const hr = v.hour
-      const isEarly = hr < 9
-      const dot = isEarly ? '#1D9E75' : hr < 14 ? '#EF9F27' : '#D85A30'
-      html += `<div class="visit-row">
-        <div class="time-dot" style="background:${dot}"></div>
+      const d   = v.date ? fmtDate(v.date,{weekday:'short',day:'numeric',month:'short'}) : '—'
+      const dot = v.hour<9 ? '#1D9E75' : v.hour<14 ? '#EF9F27' : '#185FA5'
+      const icon = v.type==='treadmill' ? '🏃' : '💪'
+      html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${dot};flex-shrink:0"></div>
+        <span style="font-size:15px">${icon}</span>
         <span style="flex:1;font-weight:500">${d}</span>
-        <span style="color:var(--gray)">${v.time}</span>
-        <span style="font-size:10px;color:var(--gray);margin-left:6px">${v.source}</span>
+        <span style="color:var(--gray-dark);font-weight:600">${v.time}</span>
+        <span style="font-size:10px;color:var(--gray);margin-left:4px">${v.source}</span>
       </div>`
     })
   }
 
   container.innerHTML = html
 }
+
 
 function updateDashboard(){
   const tm = getData('treadmill')
