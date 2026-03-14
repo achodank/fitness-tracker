@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="theme-color" content="#1D9E75"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>My Fitness Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --green:#1D9E75;--green-dark:#0F6E56;--green-light:#E1F5EE;
+  --amber:#EF9F27;--amber-light:#FAEEDA;
+  --coral:#D85A30;--coral-light:#FAECE7;
+  --blue:#185FA5;--blue-light:#E6F1FB;
+  --purple:#534AB7;--purple-light:#EEEDFE;
+  --gray:#5F5E5A;--gray-light:#F1EFE8;--gray-dark:#2C2C2A;
+  --white:#ffffff;--border:#D3D1C7;
+  --radius:12px;--radius-sm:8px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f0;color:var(--gray-dark);min-height:100vh;padding-bottom:80px}
+/* NAV */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 4px 8px;background:none;border:none;cursor:pointer;color:var(--gray);font-size:10px;gap:4px;transition:color .2s}
+.nav-btn.active{color:var(--green)}
+.nav-btn svg{width:22px;height:22px}
+/* SCREENS */
+.screen{display:none;padding:16px;max-width:480px;margin:0 auto}
+.screen.active{display:block}
+/* HEADER */
+.app-header{background:var(--green-dark);color:white;padding:48px 16px 20px;margin:-16px -16px 20px;text-align:center}
+.app-header h1{font-size:22px;font-weight:600;letter-spacing:.3px}
+.app-header p{font-size:13px;opacity:.8;margin-top:4px}
+/* CARDS */
+.card{background:var(--white);border-radius:var(--radius);border:1px solid var(--border);padding:16px;margin-bottom:14px}
+.card-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--gray);margin-bottom:12px}
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.kpi{background:var(--white);border-radius:var(--radius);border:1px solid var(--border);padding:14px;text-align:center}
+.kpi-val{font-size:26px;font-weight:700;line-height:1}
+.kpi-label{font-size:11px;color:var(--gray);margin-top:4px}
+.kpi.green .kpi-val{color:var(--green-dark)}
+.kpi.amber .kpi-val{color:var(--amber)}
+.kpi.coral .kpi-val{color:var(--coral)}
+.kpi.blue .kpi-val{color:var(--blue)}
+/* FORMS */
+.form-group{margin-bottom:14px}
+.form-label{font-size:13px;font-weight:500;color:var(--gray-dark);margin-bottom:6px;display:block}
+.form-input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:15px;background:var(--white);color:var(--gray-dark);outline:none;transition:border-color .2s}
+.form-input:focus{border-color:var(--green)}
+select.form-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235F5E5A' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+textarea.form-input{resize:vertical;min-height:80px}
+/* BUTTONS */
+.btn{width:100%;padding:14px;border-radius:var(--radius-sm);border:none;font-size:15px;font-weight:600;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-primary{background:var(--green);color:white}
+.btn-primary:active{background:var(--green-dark);transform:scale(0.98)}
+.btn-secondary{background:var(--gray-light);color:var(--gray-dark);border:1px solid var(--border)}
+.btn-amber{background:var(--amber);color:white}
+.btn-coral{background:var(--coral);color:white}
+.btn-purple{background:var(--purple);color:white}
+.btn-sm{padding:8px 14px;font-size:13px;width:auto;border-radius:20px}
+/* PHOTO UPLOAD */
+.photo-upload{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;background:var(--gray-light);transition:all .2s;margin-bottom:14px}
+.photo-upload:active{border-color:var(--green);background:var(--green-light)}
+.photo-upload input{display:none}
+.photo-upload svg{width:40px;height:40px;color:var(--gray);margin:0 auto 8px}
+.photo-upload p{font-size:14px;color:var(--gray)}
+.photo-upload small{font-size:12px;color:var(--gray);opacity:.7}
+#photo-preview{width:100%;border-radius:var(--radius-sm);margin-bottom:14px;display:none;max-height:200px;object-fit:cover}
+/* RESULT BOX */
+.result-box{background:var(--green-light);border:1px solid var(--green);border-radius:var(--radius-sm);padding:14px;margin-bottom:14px;display:none}
+.result-box h4{font-size:13px;font-weight:600;color:var(--green-dark);margin-bottom:8px}
+.result-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.result-item{background:white;border-radius:var(--radius-sm);padding:10px;text-align:center}
+.result-item .val{font-size:20px;font-weight:700;color:var(--green-dark)}
+.result-item .lbl{font-size:11px;color:var(--gray)}
+/* MOTIVATION BOX */
+.motivation-box{background:var(--amber-light);border:1px solid var(--amber);border-radius:var(--radius);padding:18px;margin-bottom:14px;display:none}
+.motivation-box p{font-size:15px;line-height:1.6;color:var(--gray-dark);font-style:italic;text-align:center}
+/* HISTORY */
+.history-item{background:var(--white);border-radius:var(--radius-sm);border:1px solid var(--border);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px}
+.history-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.history-icon.treadmill{background:var(--blue-light)}
+.history-icon.workout{background:var(--purple-light)}
+.history-info{flex:1}
+.history-title{font-size:14px;font-weight:600;color:var(--gray-dark)}
+.history-sub{font-size:12px;color:var(--gray);margin-top:2px}
+.history-date{font-size:11px;color:var(--gray);text-align:right}
+/* SETTINGS */
+.settings-section{margin-bottom:20px}
+.settings-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--gray);margin-bottom:8px}
+/* TOAST */
+.toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--gray-dark);color:white;padding:10px 20px;border-radius:20px;font-size:13px;opacity:0;transition:all .3s;z-index:200;white-space:nowrap;pointer-events:none}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* LOADING */
+.loading{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;color:var(--gray);font-size:14px}
+.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* STREAK */
+.streak-bar{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.streak-dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--gray)}
+.streak-dot.done{background:var(--green);border-color:var(--green);color:white}
+.streak-dot.today{border-color:var(--green);color:var(--green)}
+/* EMPTY STATE */
+.empty{text-align:center;padding:32px 16px;color:var(--gray)}
+.empty svg{width:48px;height:48px;margin:0 auto 12px;opacity:.4}
+.empty p{font-size:14px}
+/* SECTION LABEL */
+.section-label{font-size:13px;font-weight:600;color:var(--gray-dark);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px}
+.badge-green{background:var(--green-light);color:var(--green-dark)}
+.badge-amber{background:var(--amber-light);color:#633806}
+/* CONFIG warning */
+.config-warning{background:#FAEEDA;border:1px solid var(--amber);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:13px;color:#633806;line-height:1.5}
+.config-warning strong{display:block;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══════════════ SCREEN: DASHBOARD ═══════════════ -->
+<div class="screen active" id="screen-dashboard">
+  <div class="app-header">
+    <h1>💪 My Fitness Tracker</h1>
+    <p id="header-date"></p>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi green"><div class="kpi-val" id="kpi-km">0.0</div><div class="kpi-label">Total KM</div></div>
+    <div class="kpi coral"><div class="kpi-val" id="kpi-cal">0</div><div class="kpi-label">Calories</div></div>
+    <div class="kpi amber"><div class="kpi-val" id="kpi-time">0</div><div class="kpi-label">Total Mins</div></div>
+    <div class="kpi blue"><div class="kpi-val" id="kpi-sessions">0</div><div class="kpi-label">Sessions</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Last 7 Days — Distance (km)</div>
+    <canvas id="chart-weekly" height="160"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-title">This Week Streak</div>
+    <div class="streak-bar" id="streak-bar"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Motivation</div>
+    <div class="motivation-box" id="motivation-box" style="display:block;margin-bottom:10px">
+      <p id="motivation-text">Tap the button to get your daily motivation! 🔥</p>
+    </div>
+    <button class="btn btn-amber" onclick="getMotivation()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Motivate Me!
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ SCREEN: TREADMILL ═══════════════ -->
+<div class="screen" id="screen-treadmill">
+  <div class="app-header">
+    <h1>🏃 Log Treadmill</h1>
+    <p>Upload photo or enter manually</p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Upload Treadmill Photo — AI will read it automatically</div>
+    <label class="photo-upload" for="photo-input">
+      <input type="file" id="photo-input" accept="image/*" capture="environment" onchange="handlePhoto(event)"/>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <p>Tap to take photo or choose from gallery</p>
+      <small>Gemini AI will extract km, calories and time</small>
+    </label>
+    <img id="photo-preview" alt="Treadmill photo"/>
+    <div id="ai-loading" class="loading" style="display:none">
+      <div class="spinner"></div> Reading your treadmill screen...
+    </div>
+    <div class="result-box" id="result-box">
+      <h4>✅ Extracted from photo</h4>
+      <div class="result-grid">
+        <div class="result-item"><div class="val" id="r-km">-</div><div class="lbl">km</div></div>
+        <div class="result-item"><div class="val" id="r-cal">-</div><div class="lbl">calories</div></div>
+        <div class="result-item"><div class="val" id="r-dur">-</div><div class="lbl">mins</div></div>
+        <div class="result-item"><div class="val" id="r-spd">-</div><div class="lbl">km/h</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Session Details</div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input class="form-input" type="date" id="t-date"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Time</label>
+      <input class="form-input" type="time" id="t-time"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Distance (km)</label>
+      <input class="form-input" type="number" step="0.01" id="t-km" placeholder="e.g. 3.5"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Calories</label>
+      <input class="form-input" type="number" id="t-cal" placeholder="e.g. 280"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Duration (minutes)</label>
+      <input class="form-input" type="number" id="t-dur" placeholder="e.g. 30"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Avg Speed (km/h)</label>
+      <input class="form-input" type="number" step="0.1" id="t-spd" placeholder="e.g. 7.0"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-input" id="t-notes" placeholder="How did it feel?"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="saveTreadmill()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Save Session
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ SCREEN: WORKOUT ═══════════════ -->
+<div class="screen" id="screen-workout">
+  <div class="app-header">
+    <h1>💪 Log Workout</h1>
+    <p>Track your gym session</p>
+  </div>
+
+  <div class="card">
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input class="form-input" type="date" id="w-date"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Time</label>
+      <input class="form-input" type="time" id="w-time"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Muscle Group</label>
+      <select class="form-input" id="w-muscle">
+        <option value="">Select muscle group</option>
+        <option>Chest</option>
+        <option>Back</option>
+        <option>Legs</option>
+        <option>Shoulders</option>
+        <option>Arms (Biceps + Triceps)</option>
+        <option>Core / Abs</option>
+        <option>Full Body</option>
+        <option>Cardio Only</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Exercises Done</label>
+      <textarea class="form-input" id="w-exercises" placeholder="e.g. Bench press, Incline dumbbell, Cable fly"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Sets</label>
+      <input class="form-input" type="number" id="w-sets" placeholder="e.g. 12"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Reps per Set</label>
+      <input class="form-input" type="number" id="w-reps" placeholder="e.g. 10"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Energy Level</label>
+      <select class="form-input" id="w-energy">
+        <option value="">How did you feel?</option>
+        <option value="5">⭐⭐⭐⭐⭐ Beast mode!</option>
+        <option value="4">⭐⭐⭐⭐ Great</option>
+        <option value="3">⭐⭐⭐ Good</option>
+        <option value="2">⭐⭐ Tired</option>
+        <option value="1">⭐ Struggled</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <textarea class="form-input" id="w-notes" placeholder="PRs, how it felt, what to improve..."></textarea>
+    </div>
+    <button class="btn btn-purple" onclick="saveWorkout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Save Workout
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ SCREEN: HISTORY ═══════════════ -->
+<div class="screen" id="screen-history">
+  <div class="app-header">
+    <h1>📋 History</h1>
+    <p>All your sessions</p>
+  </div>
+  <div id="history-list"></div>
+</div>
+
+<!-- ═══════════════ SCREEN: SETTINGS ═══════════════ -->
+<div class="screen" id="screen-settings">
+  <div class="app-header">
+    <h1>⚙️ Settings</h1>
+    <p>API keys and data export</p>
+  </div>
+
+  <div class="config-warning">
+    <strong>⚠️ Add your API keys below to enable AI features</strong>
+    Your keys are stored only on your phone — never sent anywhere except the AI services directly.
+  </div>
+
+  <div class="card">
+    <div class="card-title">Gemini API Key (treadmill photo reading)</div>
+    <div class="form-group">
+      <input class="form-input" type="password" id="gemini-key" placeholder="AIzaSy..."/>
+    </div>
+    <div class="card-title" style="margin-top:16px">Groq API Key (motivation)</div>
+    <div class="form-group">
+      <input class="form-input" type="password" id="groq-key" placeholder="gsk_..."/>
+    </div>
+    <div class="card-title" style="margin-top:16px">Google Sheets Webhook URL</div>
+    <div class="form-group">
+      <input class="form-input" type="url" id="sheet-url" placeholder="https://script.google.com/..."/>
+      <small style="font-size:12px;color:var(--gray);margin-top:4px;display:block">We will set this up in Stage 4. Leave blank for now.</small>
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Export Data</div>
+    <button class="btn btn-secondary" style="margin-bottom:10px" onclick="exportCSV('treadmill')">
+      📥 Export Treadmill Log (CSV)
+    </button>
+    <button class="btn btn-secondary" onclick="exportCSV('workout')">
+      📥 Export Workout Log (CSV)
+    </button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Data Management</div>
+    <button class="btn btn-coral" onclick="clearData()">
+      🗑️ Clear All Data
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════ BOTTOM NAV ═══════════════ -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="showScreen('dashboard',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Dashboard
+  </button>
+  <button class="nav-btn" onclick="showScreen('treadmill',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="2"/><path d="M12 7v5l3 3M5 12h4M15 12h4"/><path d="M8 19l2-4 2 2 2-4 2 4"/></svg>
+    Treadmill
+  </button>
+  <button class="nav-btn" onclick="showScreen('workout',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4v16M18 4v16M6 12h12M3 6h3M18 6h3M3 18h3M18 18h3"/></svg>
+    Workout
+  </button>
+  <button class="nav-btn" onclick="showScreen('history',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    History
+  </button>
+  <button class="nav-btn" onclick="showScreen('settings',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Settings
+  </button>
+</nav>
+
+<script>
+// ═══════════════════════════════════════════════
+// DATA STORAGE
+// ═══════════════════════════════════════════════
+function getData(key){ try{ return JSON.parse(localStorage.getItem(key)||'[]') }catch(e){ return [] } }
+function setData(key,val){ localStorage.setItem(key,JSON.stringify(val)) }
+function getSettings(){ try{ return JSON.parse(localStorage.getItem('settings')||'{}') }catch(e){ return {} } }
+
+// ═══════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════
+function showScreen(name, btn){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'))
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'))
+  document.getElementById('screen-'+name).classList.add('active')
+  if(btn) btn.classList.add('active')
+  if(name==='dashboard') updateDashboard()
+  if(name==='history') renderHistory()
+  if(name==='settings') loadSettings()
+  if(name==='treadmill') setTodayDateTime('t')
+  if(name==='workout') setTodayDateTime('w')
+}
+
+function setTodayDateTime(prefix){
+  const now = new Date()
+  document.getElementById(prefix+'-date').value = now.toISOString().split('T')[0]
+  document.getElementById(prefix+'-time').value = now.toTimeString().slice(0,5)
+}
+
+// ═══════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════
+function showToast(msg){
+  const t = document.getElementById('toast')
+  t.textContent = msg
+  t.classList.add('show')
+  setTimeout(()=>t.classList.remove('show'), 2500)
+}
+
+// ═══════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════
+let weeklyChart = null
+
+function updateDashboard(){
+  const treadmill = getData('treadmill')
+  const workouts = getData('workouts')
+
+  const totalKm = treadmill.reduce((s,r)=>s+parseFloat(r.km||0),0)
+  const totalCal = treadmill.reduce((s,r)=>s+parseInt(r.cal||0),0)
+  const totalMin = treadmill.reduce((s,r)=>s+parseInt(r.dur||0),0)
+
+  document.getElementById('kpi-km').textContent = totalKm.toFixed(1)
+  document.getElementById('kpi-cal').textContent = totalCal.toLocaleString()
+  document.getElementById('kpi-time').textContent = totalMin
+  document.getElementById('kpi-sessions').textContent = treadmill.length
+
+  const now = new Date()
+  document.getElementById('header-date').textContent = now.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})
+
+  // Weekly chart
+  const days = []
+  const kmByDay = []
+  for(let i=6;i>=0;i--){
+    const d = new Date(); d.setDate(d.getDate()-i)
+    const key = d.toISOString().split('T')[0]
+    days.push(d.toLocaleDateString('en',{weekday:'short'}))
+    const dayKm = treadmill.filter(r=>r.date===key).reduce((s,r)=>s+parseFloat(r.km||0),0)
+    kmByDay.push(parseFloat(dayKm.toFixed(2)))
+  }
+
+  const ctx = document.getElementById('chart-weekly').getContext('2d')
+  if(weeklyChart) weeklyChart.destroy()
+  weeklyChart = new Chart(ctx,{
+    type:'bar',
+    data:{
+      labels:days,
+      datasets:[{
+        label:'km',
+        data:kmByDay,
+        backgroundColor:'rgba(29,158,117,0.25)',
+        borderColor:'#1D9E75',
+        borderWidth:2,
+        borderRadius:6
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{legend:{display:false}},
+      scales:{
+        y:{beginAtZero:true,ticks:{font:{size:11}},grid:{color:'rgba(0,0,0,0.05)'}},
+        x:{ticks:{font:{size:11}},grid:{display:false}}
+      }
+    }
+  })
+
+  // Streak
+  const streakBar = document.getElementById('streak-bar')
+  streakBar.innerHTML = ''
+  const dayNames = ['M','T','W','T','F','S','S']
+  for(let i=6;i>=0;i--){
+    const d = new Date(); d.setDate(d.getDate()-i)
+    const key = d.toISOString().split('T')[0]
+    const hasActivity = treadmill.some(r=>r.date===key) || workouts.some(r=>r.date===key)
+    const isToday = i===0
+    const dot = document.createElement('div')
+    dot.className = 'streak-dot' + (hasActivity?' done':'') + (isToday&&!hasActivity?' today':'')
+    dot.textContent = dayNames[d.getDay()===0?6:d.getDay()-1]
+    streakBar.appendChild(dot)
+  }
+}
+
+// ═══════════════════════════════════════════════
+// PHOTO HANDLING + GEMINI AI
+// ═══════════════════════════════════════════════
+let currentPhotoBase64 = null
+
+function handlePhoto(event){
+  const file = event.target.files[0]
+  if(!file) return
+  const reader = new FileReader()
+  reader.onload = function(e){
+    const base64 = e.target.result
+    document.getElementById('photo-preview').src = base64
+    document.getElementById('photo-preview').style.display = 'block'
+    currentPhotoBase64 = base64.split(',')[1]
+    readWithGemini(currentPhotoBase64)
+  }
+  reader.readAsDataURL(file)
+}
+
+async function readWithGemini(base64){
+  const settings = getSettings()
+  if(!settings.geminiKey){
+    showToast('⚠️ Add your Gemini API key in Settings first')
+    return
+  }
+  document.getElementById('ai-loading').style.display = 'flex'
+  document.getElementById('result-box').style.display = 'none'
+  try{
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.geminiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[
+          {text:"This is a treadmill display screen photo. Extract these exact values shown on the screen: distance in km, calories burned, duration in minutes, average speed in km/h. Return ONLY this format, nothing else: km=X calories=X duration=X speed=X. If a value is not visible use 0."},
+          {inlineData:{mimeType:'image/jpeg',data:base64}}
+        ]}]
+      })
+    })
+    const data = await res.json()
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    const km = parseFloat(text.match(/km=([\d.]+)/i)?.[1] || 0)
+    const cal = parseInt(text.match(/calories=([\d.]+)/i)?.[1] || 0)
+    const dur = parseInt(text.match(/duration=([\d.]+)/i)?.[1] || 0)
+    const spd = parseFloat(text.match(/speed=([\d.]+)/i)?.[1] || 0)
+
+    document.getElementById('r-km').textContent = km.toFixed(2)
+    document.getElementById('r-cal').textContent = cal
+    document.getElementById('r-dur').textContent = dur
+    document.getElementById('r-spd').textContent = spd.toFixed(1)
+    document.getElementById('result-box').style.display = 'block'
+
+    document.getElementById('t-km').value = km.toFixed(2)
+    document.getElementById('t-cal').value = cal
+    document.getElementById('t-dur').value = dur
+    document.getElementById('t-spd').value = spd.toFixed(1)
+    showToast('✅ Treadmill data extracted!')
+  }catch(e){
+    showToast('❌ Could not read photo. Fill in manually.')
+  }
+  document.getElementById('ai-loading').style.display = 'none'
+}
+
+// ═══════════════════════════════════════════════
+// SAVE TREADMILL
+// ═══════════════════════════════════════════════
+async function saveTreadmill(){
+  const date = document.getElementById('t-date').value
+  const time = document.getElementById('t-time').value
+  const km = document.getElementById('t-km').value
+  const cal = document.getElementById('t-cal').value
+  const dur = document.getElementById('t-dur').value
+  const spd = document.getElementById('t-spd').value
+  const notes = document.getElementById('t-notes').value
+
+  if(!date||!km){ showToast('⚠️ Date and distance are required'); return }
+
+  const record = {id:Date.now(), date, time, km, cal, dur, spd, notes, type:'treadmill'}
+  const data = getData('treadmill')
+  data.unshift(record)
+  setData('treadmill', data)
+
+  await syncToSheet(record)
+  showToast('✅ Session saved!')
+
+  document.getElementById('t-km').value=''
+  document.getElementById('t-cal').value=''
+  document.getElementById('t-dur').value=''
+  document.getElementById('t-spd').value=''
+  document.getElementById('t-notes').value=''
+  document.getElementById('result-box').style.display='none'
+  document.getElementById('photo-preview').style.display='none'
+  currentPhotoBase64=null
+}
+
+// ═══════════════════════════════════════════════
+// SAVE WORKOUT
+// ═══════════════════════════════════════════════
+async function saveWorkout(){
+  const date = document.getElementById('w-date').value
+  const time = document.getElementById('w-time').value
+  const muscle = document.getElementById('w-muscle').value
+  const exercises = document.getElementById('w-exercises').value
+  const sets = document.getElementById('w-sets').value
+  const reps = document.getElementById('w-reps').value
+  const energy = document.getElementById('w-energy').value
+  const notes = document.getElementById('w-notes').value
+
+  if(!date||!muscle){ showToast('⚠️ Date and muscle group are required'); return }
+
+  const record = {id:Date.now(), date, time, muscle, exercises, sets, reps, energy, notes, type:'workout'}
+  const data = getData('workouts')
+  data.unshift(record)
+  setData('workouts', data)
+
+  await syncToSheet(record)
+  showToast('✅ Workout saved!')
+
+  document.getElementById('w-muscle').value=''
+  document.getElementById('w-exercises').value=''
+  document.getElementById('w-sets').value=''
+  document.getElementById('w-reps').value=''
+  document.getElementById('w-energy').value=''
+  document.getElementById('w-notes').value=''
+}
+
+// ═══════════════════════════════════════════════
+// SYNC TO GOOGLE SHEET
+// ═══════════════════════════════════════════════
+async function syncToSheet(record){
+  const settings = getSettings()
+  if(!settings.sheetUrl) return
+  try{
+    await fetch(settings.sheetUrl, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(record)
+    })
+  }catch(e){ /* silent fail — data already saved locally */ }
+}
+
+// ═══════════════════════════════════════════════
+// GROQ MOTIVATION
+// ═══════════════════════════════════════════════
+async function getMotivation(){
+  const settings = getSettings()
+  const treadmill = getData('treadmill')
+  const workouts = getData('workouts')
+  const totalKm = treadmill.reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(1)
+  const totalDays = new Set([...treadmill.map(r=>r.date),...workouts.map(r=>r.date)]).size
+
+  const btn = document.querySelector('.btn-amber')
+  btn.textContent = '⏳ Getting your message...'
+  btn.disabled = true
+
+  if(!settings.groqKey){
+    const fallbacks = [
+      "You started 4 days ago and you're already building a habit. That's the hardest part — and you've done it. Keep going! 🔥",
+      "Every km you run is a km your future self will thank you for. Show up today! 💪",
+      "Pain is temporary. Your fitness progress is permanent. Push through! 🏃",
+      "You didn't come this far to only come this far. One more session! ⚡",
+      "The only bad workout is the one that didn't happen. Let's go! 🎯"
+    ]
+    document.getElementById('motivation-text').textContent = fallbacks[Math.floor(Math.random()*fallbacks.length)]
+    document.getElementById('motivation-box').style.display = 'block'
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
+    btn.disabled = false
+    return
+  }
+
+  try{
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+settings.groqKey},
+      body:JSON.stringify({
+        model:'llama3-8b-8192',
+        messages:[{role:'user',content:`I am ${totalDays} days into my fitness journey. I have run ${totalKm} km total. Give me one powerful, personal, energetic motivational message in 2-3 sentences. Be specific to my progress. No hashtags.`}],
+        max_tokens:120
+      })
+    })
+    const data = await res.json()
+    const msg = data.choices?.[0]?.message?.content || "You're doing amazing — keep pushing! 💪"
+    document.getElementById('motivation-text').textContent = msg
+    document.getElementById('motivation-box').style.display = 'block'
+  }catch(e){
+    document.getElementById('motivation-text').textContent = "Every session counts. You started — that's the hardest part. Keep going! 🔥"
+    document.getElementById('motivation-box').style.display = 'block'
+  }
+  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
+  btn.disabled = false
+}
+
+// ═══════════════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════════════
+function renderHistory(){
+  const treadmill = getData('treadmill').map(r=>({...r,type:'treadmill'}))
+  const workouts = getData('workouts').map(r=>({...r,type:'workout'}))
+  const all = [...treadmill,...workouts].sort((a,b)=>new Date(b.date+' '+b.time)-new Date(a.date+' '+a.time))
+
+  const list = document.getElementById('history-list')
+  if(!all.length){
+    list.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><p>No sessions logged yet.<br>Start by logging a treadmill or workout!</p></div>`
+    return
+  }
+
+  list.innerHTML = all.map(r=>{
+    if(r.type==='treadmill'){
+      return `<div class="history-item">
+        <div class="history-icon treadmill">🏃</div>
+        <div class="history-info">
+          <div class="history-title">${r.km} km — ${r.cal} cal</div>
+          <div class="history-sub">${r.dur} mins · ${r.spd} km/h${r.notes?' · '+r.notes:''}</div>
+        </div>
+        <div class="history-date">${formatDate(r.date)}<br>${r.time||''}</div>
+      </div>`
+    } else {
+      return `<div class="history-item">
+        <div class="history-icon workout">💪</div>
+        <div class="history-info">
+          <div class="history-title">${r.muscle}</div>
+          <div class="history-sub">${r.exercises||''}${r.sets?' · '+r.sets+' sets':''}</div>
+        </div>
+        <div class="history-date">${formatDate(r.date)}<br>${r.time||''}</div>
+      </div>`
+    }
+  }).join('')
+}
+
+function formatDate(d){
+  if(!d) return ''
+  const date = new Date(d)
+  return date.toLocaleDateString('en-IN',{day:'numeric',month:'short'})
+}
+
+// ═══════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════
+function loadSettings(){
+  const s = getSettings()
+  if(s.geminiKey) document.getElementById('gemini-key').value = s.geminiKey
+  if(s.groqKey) document.getElementById('groq-key').value = s.groqKey
+  if(s.sheetUrl) document.getElementById('sheet-url').value = s.sheetUrl
+}
+
+function saveSettings(){
+  const s = {
+    geminiKey: document.getElementById('gemini-key').value.trim(),
+    groqKey: document.getElementById('groq-key').value.trim(),
+    sheetUrl: document.getElementById('sheet-url').value.trim()
+  }
+  localStorage.setItem('settings', JSON.stringify(s))
+  showToast('✅ Settings saved!')
+}
+
+// ═══════════════════════════════════════════════
+// CSV EXPORT
+// ═══════════════════════════════════════════════
+function exportCSV(type){
+  let rows, headers, filename
+  if(type==='treadmill'){
+    headers = ['Date','Time','Distance (km)','Calories','Duration (min)','Avg Speed','Notes']
+    rows = getData('treadmill').map(r=>[r.date,r.time,r.km,r.cal,r.dur,r.spd,r.notes||''])
+    filename = 'treadmill_log.csv'
+  } else {
+    headers = ['Date','Time','Muscle Group','Exercises','Sets','Reps','Energy','Notes']
+    rows = getData('workouts').map(r=>[r.date,r.time,r.muscle,r.exercises||'',r.sets||'',r.reps||'',r.energy||'',r.notes||''])
+    filename = 'workout_log.csv'
+  }
+  const csv = [headers, ...rows].map(r=>r.map(v=>'"'+(v||'').toString().replace(/"/g,'""')+'"').join(',')).join('\n')
+  const blob = new Blob([csv], {type:'text/csv'})
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+  showToast('✅ CSV downloaded!')
+}
+
+function clearData(){
+  if(confirm('Delete ALL your fitness data? This cannot be undone.')){
+    localStorage.removeItem('treadmill')
+    localStorage.removeItem('workouts')
+    updateDashboard()
+    showToast('🗑️ All data cleared')
+  }
+}
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+setTodayDateTime('t')
+setTodayDateTime('w')
+updateDashboard()
+</script>
+</body>
+</html>
