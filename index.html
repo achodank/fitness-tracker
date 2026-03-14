@@ -174,10 +174,17 @@ textarea.form-input{resize:vertical;min-height:80px}
     <div class="card-title">Session Details</div>
     <div class="form-group"><label class="form-label">Date</label><input class="form-input" type="date" id="t-date"/></div>
     <div class="form-group"><label class="form-label">Time</label><input class="form-input" type="time" id="t-time"/></div>
-    <div class="form-group"><label class="form-label">Distance (km)</label><input class="form-input" type="number" step="0.01" id="t-km" placeholder="e.g. 3.5"/></div>
+    <div class="form-group"><label class="form-label">Distance (km)</label><input class="form-input" type="number" step="0.01" id="t-km" placeholder="e.g. 3.5" oninput="calcSpeed()"/></div>
     <div class="form-group"><label class="form-label">Calories</label><input class="form-input" type="number" id="t-cal" placeholder="e.g. 280"/></div>
-    <div class="form-group"><label class="form-label">Duration (minutes)</label><input class="form-input" type="number" id="t-dur" placeholder="e.g. 30"/></div>
-    <div class="form-group"><label class="form-label">Avg Speed (km/h)</label><input class="form-input" type="number" step="0.1" id="t-spd" placeholder="e.g. 7.0"/></div>
+    <div class="form-group"><label class="form-label">Duration (minutes)</label><input class="form-input" type="number" id="t-dur" placeholder="e.g. 30" oninput="calcSpeed()"/></div>
+    <div class="form-group">
+      <label class="form-label">Avg Speed (km/h)</label>
+      <div id="t-spd-display" style="padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--gray-light);font-size:15px;color:var(--gray-dark);display:flex;justify-content:space-between;align-items:center">
+        <span id="t-spd-val" style="font-weight:600;color:var(--green-dark)">— km/h</span>
+        <small style="color:var(--gray);font-size:11px">Auto-calculated</small>
+      </div>
+      <input type="hidden" id="t-spd"/>
+    </div>
     <div class="form-group"><label class="form-label">Notes</label><textarea class="form-input" id="t-notes" placeholder="How did it feel?"></textarea></div>
     <button class="btn btn-primary" onclick="saveTreadmill()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
@@ -571,7 +578,7 @@ async function readWithGemini(b64){
         document.getElementById('t-km').value  = km.toFixed(2)
         document.getElementById('t-cal').value = cal
         document.getElementById('t-dur').value = dur
-        document.getElementById('t-spd').value = spd.toFixed(1)
+        calcSpeed()
         setResultBox(`<strong style="color:#085041">✅ Extracted — edit below if needed</strong>
           <div class="result-grid">
             <div class="result-item"><div class="val">${km.toFixed(2)}</div><div class="lbl">km</div></div>
@@ -589,6 +596,27 @@ async function readWithGemini(b64){
     setResultBox('<strong style="color:#4A1B0C">❌ Could not read photo</strong><br><small style="color:#4A1B0C">'+lastErr+'<br>Please fill values manually below.</small>','#FAECE7','#D85A30')
     document.getElementById('ai-loading').style.display='none'
   })
+}
+
+// ═══════════════════════════════════════════
+// AUTO CALCULATE SPEED
+// ═══════════════════════════════════════════
+function calcSpeed(){
+  const km  = parseFloat(document.getElementById('t-km').value)
+  const dur = parseFloat(document.getElementById('t-dur').value)
+  const display = document.getElementById('t-spd-val')
+  const hidden  = document.getElementById('t-spd')
+  if(km > 0 && dur > 0){
+    const hrs = dur / 60
+    const spd = (km / hrs).toFixed(2)
+    hidden.value = spd
+    display.textContent = spd + ' km/h'
+    display.style.color = 'var(--green-dark)'
+  } else {
+    hidden.value = ''
+    display.textContent = '— km/h'
+    display.style.color = 'var(--gray)'
+  }
 }
 
 // ═══════════════════════════════════════════
