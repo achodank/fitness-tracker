@@ -577,77 +577,82 @@ async function readWithGemini(base64){
   document.getElementById('result-box').style.display = 'none'
 
   compressImage(base64, async function(compressed){
-    try{
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${settings.geminiKey.trim()}`,
-        {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            contents:[{parts:[
-              {text:"Look carefully at this treadmill console display photo. Find and extract these numbers shown on the screen: 1) Distance in km or miles (convert to km if miles), 2) Calories burned, 3) Duration or time elapsed in minutes, 4) Speed in km/h. Return ONLY this exact format with numbers only, no units: km=X calories=X duration=X speed=X. If any value is not visible or not shown on screen, use 0 for that value."},
-              {inlineData:{mimeType:'image/jpeg', data:compressed}}
-            ]}]
-          })
+    const models = [
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash-8b',
+      'gemini-1.5-flash',
+      'gemini-pro-vision'
+    ]
+    let lastError = ''
+    for(const model of models){
+      try{
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${settings.geminiKey.trim()}`,
+          {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+              contents:[{parts:[
+                {text:"Look carefully at this treadmill console display photo. Find and extract these numbers shown on the screen: 1) Distance in km or miles (convert to km if miles), 2) Calories burned, 3) Duration or time elapsed in minutes, 4) Speed in km/h. Return ONLY this exact format with numbers only, no units: km=X calories=X duration=X speed=X. If any value is not visible or not shown on screen, use 0 for that value."},
+                {inlineData:{mimeType:'image/jpeg', data:compressed}}
+              ]}]
+            })
+          }
+        )
+        if(res.status===429 || res.status===404){
+          const err = await res.json().catch(()=>({}))
+          lastError = err?.error?.message || `Error ${res.status}`
+          continue
         }
-      )
-
-      if(!res.ok){
-        const err = await res.json().catch(()=>({}))
-        const msg = err?.error?.message || `API error ${res.status}`
-        if(res.status===400) showError(`API key issue: ${msg}. Double-check your Gemini key in Settings — make sure there are no extra spaces.`)
-        else if(res.status===403) showError('API key is invalid or not enabled. Go to <strong>aistudio.google.com</strong> → make sure your key is active and the Gemini API is enabled.')
-        else if(res.status===429) showError('Too many requests. Wait 1 minute and try again. You may have hit the free tier limit.')
-        else showError(`Gemini API returned error ${res.status}: ${msg}`)
+        if(!res.ok){
+          const err = await res.json().catch(()=>({}))
+          const msg = err?.error?.message || `API error ${res.status}`
+          if(res.status===403) showError('API key is invalid or not enabled. Go to <strong>aistudio.google.com</strong> → make sure your key is active.')
+          else showError(`Gemini API error (${res.status}): ${msg}`)
+          document.getElementById('ai-loading').style.display = 'none'
+          return
+        }
+        const data = await res.json()
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        if(!text){ lastError = 'Empty response'; continue }
+        const km  = parseFloat(text.match(/km=([\d.]+)/i)?.[1]  || 0)
+        const cal = parseInt(text.match(/calories=([\d.]+)/i)?.[1] || 0)
+        const dur = parseInt(text.match(/duration=([\d.]+)/i)?.[1] || 0)
+        const spd = parseFloat(text.match(/speed=([\d.]+)/i)?.[1] || 0)
+        if(km===0 && cal===0 && dur===0){
+          showError('Gemini saw the image but could not find treadmill numbers. Tips: take the photo closer to the screen, make sure the display is lit up, avoid glare. You can fill the values manually below.')
+          document.getElementById('ai-loading').style.display = 'none'
+          return
+        }
+        showSuccess()
+        setTimeout(()=>{
+          const rKm = document.getElementById('r-km')
+          const rCal = document.getElementById('r-cal')
+          const rDur = document.getElementById('r-dur')
+          const rSpd = document.getElementById('r-spd')
+          if(rKm) rKm.textContent = km.toFixed(2)
+          if(rCal) rCal.textContent = cal
+          if(rDur) rDur.textContent = dur
+          if(rSpd) rSpd.textContent = spd.toFixed(1)
+        }, 50)
+        document.getElementById('t-km').value  = km.toFixed(2)
+        document.getElementById('t-cal').value = cal
+        document.getElementById('t-dur').value = dur
+        document.getElementById('t-spd').value = spd.toFixed(1)
+        showToast(`✅ Data extracted using ${model}!`)
         document.getElementById('ai-loading').style.display = 'none'
         return
-      }
-
-      const data = await res.json()
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-
-      if(!text){
-        showError('Gemini could not read the image. Try taking a clearer, closer photo of the treadmill display screen with good lighting.')
-        document.getElementById('ai-loading').style.display = 'none'
-        return
-      }
-
-      const km  = parseFloat(text.match(/km=([\d.]+)/i)?.[1]  || 0)
-      const cal = parseInt(text.match(/calories=([\d.]+)/i)?.[1] || 0)
-      const dur = parseInt(text.match(/duration=([\d.]+)/i)?.[1] || 0)
-      const spd = parseFloat(text.match(/speed=([\d.]+)/i)?.[1] || 0)
-
-      if(km===0 && cal===0 && dur===0){
-        showError('Gemini saw the image but could not find treadmill numbers. Tips: take the photo closer to the screen, make sure the display is lit up, avoid glare. You can fill the values manually below.')
-        document.getElementById('ai-loading').style.display = 'none'
-        return
-      }
-
-      showSuccess()
-      setTimeout(()=>{
-        const rKm = document.getElementById('r-km')
-        const rCal = document.getElementById('r-cal')
-        const rDur = document.getElementById('r-dur')
-        const rSpd = document.getElementById('r-spd')
-        if(rKm) rKm.textContent = km.toFixed(2)
-        if(rCal) rCal.textContent = cal
-        if(rDur) rDur.textContent = dur
-        if(rSpd) rSpd.textContent = spd.toFixed(1)
-      }, 50)
-
-      document.getElementById('t-km').value  = km.toFixed(2)
-      document.getElementById('t-cal').value = cal
-      document.getElementById('t-dur').value = dur
-      document.getElementById('t-spd').value = spd.toFixed(1)
-      showToast('✅ Treadmill data extracted!')
-
-    }catch(e){
-      if(e.name==='TypeError' && e.message.includes('fetch')){
-        showError('Network error — could not reach Gemini API. Check your internet connection and try again.')
-      } else {
-        showError(`Unexpected error: ${e.message}. Please fill in the values manually.`)
+      }catch(e){
+        lastError = e.message
+        continue
       }
     }
+    showError(`All Gemini models are quota-limited right now.<br><br>
+      <strong>Fix options:</strong><br>
+      1. Enable billing at <strong>console.cloud.google.com</strong> (free tier, no charge)<br>
+      2. Wait a few minutes and try again<br>
+      3. Fill in the values manually below<br><br>
+      <em>Last error: ${lastError}</em>`)
     document.getElementById('ai-loading').style.display = 'none'
   })
 }
@@ -858,7 +863,7 @@ async function testGeminiKey(){
   if(!key){ box.textContent = '⚠️ Please enter your Gemini key first'; return }
   try{
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
       { method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({contents:[{parts:[{text:'Reply with just the word: working'}]}]}) }
     )
