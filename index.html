@@ -761,270 +761,89 @@ async function saveWorkout(){
 }
 
 // ═══════════════════════════════════════════════
-// SYNC TO GOOGLE SHEET
+// SYNC TO GOOGLE SHEET  (JSONP — real confirmation)
 // ═══════════════════════════════════════════════
-const HARDCODED_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzOTgPxnaknbw4iy3YBSXQEGPbiaYgAtc_q0h56wj7pkWjN6EsJ3fKZKQ9j7n8oO4qW/exec'
+const HARDCODED_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzd_lAguR4dOtoaKtpo_x5QgErerAkTALxvXBV8Qhu4T2f8kPfbpilsI6Z5kznd4taz/exec'
+
+// JSONP sender — the only method that works cross-origin with Apps Script
+function sendViaJSONP(url, data){
+  return new Promise((resolve, reject) => {
+    const cbName = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*9999)
+    const timeout = setTimeout(() => {
+      delete window[cbName]
+      if(script.parentNode) script.parentNode.removeChild(script)
+      reject(new Error('timeout'))
+    }, 12000)
+
+    window[cbName] = function(response){
+      clearTimeout(timeout)
+      delete window[cbName]
+      if(script.parentNode) script.parentNode.removeChild(script)
+      if(response && response.status === 'success') resolve(response)
+      else reject(new Error(response ? response.message : 'unknown error'))
+    }
+
+    const params = encodeURIComponent(JSON.stringify(data))
+    const script = document.createElement('script')
+    script.src = url + '?callback=' + cbName + '&data=' + params
+    script.onerror = () => {
+      clearTimeout(timeout)
+      delete window[cbName]
+      reject(new Error('script load error'))
+    }
+    document.head.appendChild(script)
+  })
+}
+
+function updateSyncStatus(status, msg){
+  const el = document.getElementById('sync-status')
+  if(!el) return
+  const map = {
+    'syncing': {text:'⏳ Syncing to Google Sheet...', color:'#0C447C', bg:'#E6F1FB'},
+    'success': {text:'✅ Synced to Google Sheet!',    color:'#085041', bg:'#E1F5EE'},
+    'failed':  {text:'⚠️ Sync failed — saved locally', color:'#633806', bg:'#FAEEDA'},
+    'not_configured': {text:'ℹ️ Data saved locally only', color:'#5F5E5A', bg:'#F1EFE8'},
+  }
+  const s = map[status] || map['not_configured']
+  el.textContent = msg || s.text
+  el.style.color = s.color
+  el.style.background = s.bg
+  el.style.display = 'block'
+  if(status === 'success') setTimeout(() => { if(el) el.style.display = 'none' }, 4000)
+}
 
 async function syncToSheet(record){
   const settings = getSettings()
   const url = settings.sheetUrl || HARDCODED_SHEET_URL
-  if(!url){ 
-    updateSyncStatus('not_configured')
-    return 
-  }
+  if(!url){ updateSyncStatus('not_configured'); return false }
   updateSyncStatus('syncing')
   try{
-    // no-cors mode needed for Apps Script from browser
-    await fetch(url, {
-      method:'POST',
-      mode:'no-cors',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify(record)
-    })
-    // no-cors means we can't read the response, but if no error thrown it worked
+    await sendViaJSONP(url, record)
+    markSynced(record.id)
+    localStorage.setItem('lastSyncTime', new Date().toISOString())
     updateSyncStatus('success')
-    addToSyncQueue(record, true)
+    return true
   }catch(e){
-    // save to queue for retry
+    console.error('Sync error:', e.message)
+    queueForRetry(record)
     updateSyncStatus('failed')
-    addToSyncQueue(record, false)
+    return false
   }
 }
 
-function updateSyncStatus(status){
-  const el = document.getElementById('sync-status')
-  if(!el) return
-  const map = {
-    'syncing':  {text:'⏳ Syncing to Google Sheet...', color:'#185FA5', bg:'#E6F1FB'},
-    'success':  {text:'✅ Synced to Google Sheet',     color:'#085041', bg:'#E1F5EE'},
-    'failed':   {text:'⚠️ Sync failed — saved locally', color:'#633806', bg:'#FAEEDA'},
-    'not_configured': {text:'ℹ️ No Sheet URL — data saved locally only', color:'#5F5E5A', bg:'#F1EFE8'},
-    'pending':  {text:'🔄 Pending sync items',          color:'#3C3489', bg:'#EEEDFE'},
-  }
-  const s = map[status] || map['not_configured']
-  el.textContent = s.text
-  el.style.color = s.color
-  el.style.background = s.bg
-  el.style.display = 'block'
-  if(status === 'success') setTimeout(()=>{ if(el) el.style.display='none' }, 4000)
-}
-
-function addToSyncQueue(record, synced){
+function markSynced(id){
   const q = JSON.parse(localStorage.getItem('syncQueue') || '[]')
-  q.push({...record, _synced: synced, _queuedAt: new Date().toISOString()})
+  const existing = q.find(r => String(r.id) === String(id))
+  if(existing){ existing._synced = true; existing._syncedAt = new Date().toISOString() }
+  else q.push({id, _synced: true, _syncedAt: new Date().toISOString()})
   localStorage.setItem('syncQueue', JSON.stringify(q))
 }
 
-async function retrySyncAll(){
-  const settings = getSettings()
-  const url = settings.sheetUrl || HARDCODED_SHEET_URL
-  if(!url){ showToast('⚠️ Add your Sheet URL in Settings first'); return }
+function queueForRetry(record){
   const q = JSON.parse(localStorage.getItem('syncQueue') || '[]')
-  const unsynced = q.filter(r => !r._synced)
-  if(!unsynced.length){ showToast('✅ Everything is already synced!'); return }
-  showToast(`⏳ Retrying ${unsynced.length} items...`)
-  let successCount = 0
-  for(const record of unsynced){
-    try{
-      await fetch(url, {
-        method:'POST', mode:'no-cors',
-        headers:{'Content-Type':'text/plain'},
-        body:JSON.stringify(record)
-      })
-      record._synced = true
-      successCount++
-    }catch(e){}
-  }
-  // update queue
-  const updated = q.map(r => {
-    const found = unsynced.find(u => u.id === r.id)
-    return found ? found : r
-  })
-  localStorage.setItem('syncQueue', JSON.stringify(updated))
-  showToast(`✅ Synced ${successCount} of ${unsynced.length} items`)
-}
-
-// ═══════════════════════════════════════════════
-// GROQ MOTIVATION
-// ═══════════════════════════════════════════════
-async function getMotivation(){
-  const settings = getSettings()
-  const treadmill = getData('treadmill')
-  const workouts = getData('workouts')
-  const totalKm = treadmill.reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(1)
-  const totalDays = new Set([...treadmill.map(r=>r.date),...workouts.map(r=>r.date)]).size
-
-  const btn = document.querySelector('.btn-amber')
-  btn.textContent = '⏳ Getting your message...'
-  btn.disabled = true
-
-  if(!settings.groqKey){
-    const fallbacks = [
-      "You started 4 days ago and you're already building a habit. That's the hardest part — and you've done it. Keep going! 🔥",
-      "Every km you run is a km your future self will thank you for. Show up today! 💪",
-      "Pain is temporary. Your fitness progress is permanent. Push through! 🏃",
-      "You didn't come this far to only come this far. One more session! ⚡",
-      "The only bad workout is the one that didn't happen. Let's go! 🎯"
-    ]
-    document.getElementById('motivation-text').textContent = fallbacks[Math.floor(Math.random()*fallbacks.length)]
-    document.getElementById('motivation-box').style.display = 'block'
-    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
-    btn.disabled = false
-    return
-  }
-
-  try{
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+settings.groqKey},
-      body:JSON.stringify({
-        model:'llama3-8b-8192',
-        messages:[{role:'user',content:`I am ${totalDays} days into my fitness journey. I have run ${totalKm} km total. Give me one powerful, personal, energetic motivational message in 2-3 sentences. Be specific to my progress. No hashtags.`}],
-        max_tokens:120
-      })
-    })
-    const data = await res.json()
-    const msg = data.choices?.[0]?.message?.content || "You're doing amazing — keep pushing! 💪"
-    document.getElementById('motivation-text').textContent = msg
-    document.getElementById('motivation-box').style.display = 'block'
-  }catch(e){
-    document.getElementById('motivation-text').textContent = "Every session counts. You started — that's the hardest part. Keep going! 🔥"
-    document.getElementById('motivation-box').style.display = 'block'
-  }
-  btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
-  btn.disabled = false
-}
-
-function toggleChip(cb){
-  const chip = cb.closest('.muscle-chip')
-  chip.classList.toggle('selected', cb.checked)
-  const selected = Array.from(document.querySelectorAll('#muscle-checkboxes input:checked')).map(c=>c.value)
-  const summary = document.getElementById('muscle-summary')
-  summary.textContent = selected.length ? '✅ Selected: ' + selected.join(' + ') : ''
-}
-
-// ═══════════════════════════════════════════════
-// HISTORY
-// ═══════════════════════════════════════════════
-function renderHistory(){
-  const treadmill = getData('treadmill').map(r=>({...r,type:'treadmill'}))
-  const workouts = getData('workouts').map(r=>({...r,type:'workout'}))
-  const all = [...treadmill,...workouts].sort((a,b)=>new Date(b.date+' '+b.time)-new Date(a.date+' '+a.time))
-
-  const list = document.getElementById('history-list')
-  if(!all.length){
-    list.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><p>No sessions logged yet.<br>Start by logging a treadmill or workout!</p></div>`
-    return
-  }
-
-  list.innerHTML = all.map(r=>{
-    if(r.type==='treadmill'){
-      return `<div class="history-item">
-        <div class="history-icon treadmill">🏃</div>
-        <div class="history-info">
-          <div class="history-title">${r.km} km — ${r.cal} cal</div>
-          <div class="history-sub">${r.dur} mins · ${r.spd} km/h${r.notes?' · '+r.notes:''}</div>
-        </div>
-        <div class="history-date">${formatDate(r.date)}<br>${r.time||''}</div>
-      </div>`
-    } else {
-      return `<div class="history-item">
-        <div class="history-icon workout">💪</div>
-        <div class="history-info">
-          <div class="history-title">${r.muscle}</div>
-          <div class="history-sub">${r.exercises||''}${r.sets?' · '+r.sets+' sets':''}</div>
-        </div>
-        <div class="history-date">${formatDate(r.date)}<br>${r.time||''}</div>
-      </div>`
-    }
-  }).join('')
-}
-
-function formatDate(d){
-  if(!d) return ''
-  const date = new Date(d)
-  return date.toLocaleDateString('en-IN',{day:'numeric',month:'short'})
-}
-
-// ═══════════════════════════════════════════════
-// SETTINGS
-// ═══════════════════════════════════════════════
-function loadSettings(){
-  const s = getSettings()
-  if(s.geminiKey) document.getElementById('gemini-key').value = s.geminiKey
-  if(s.groqKey) document.getElementById('groq-key').value = s.groqKey
-  if(s.sheetUrl) document.getElementById('sheet-url').value = s.sheetUrl
-}
-
-function saveSettings(){
-  const s = {
-    geminiKey: document.getElementById('gemini-key').value.trim(),
-    groqKey: document.getElementById('groq-key').value.trim(),
-    sheetUrl: document.getElementById('sheet-url').value.trim()
-  }
-  localStorage.setItem('settings', JSON.stringify(s))
-  showToast('✅ Settings saved!')
-}
-
-async function testGeminiKey(){
-  const key = document.getElementById('gemini-key').value.trim()
-  const box = document.getElementById('key-test-result')
-  box.style.display = 'block'
-  box.style.background = '#E6F1FB'
-  box.style.border = '1px solid #185FA5'
-  box.style.color = '#0C447C'
-  box.textContent = '⏳ Testing your Gemini API key...'
-  if(!key){ box.textContent = '⚠️ Please enter your Gemini key first'; return }
-  try{
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      { method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts:[{text:'Reply with just the word: working'}]}]}) }
-    )
-    if(res.ok){
-      box.style.background='#E1F5EE'; box.style.border='1px solid #1D9E75'; box.style.color='#085041'
-      box.textContent = '✅ Gemini API key is working! You can now upload treadmill photos.'
-    } else {
-      const err = await res.json().catch(()=>({}))
-      box.style.background='#FAECE7'; box.style.border='1px solid #D85A30'; box.style.color='#4A1B0C'
-      box.textContent = `❌ Key failed (${res.status}): ${err?.error?.message || 'Invalid key'}. Go to aistudio.google.com and create a new key.`
-    }
-  }catch(e){
-    box.style.background='#FAEEDA'; box.style.border='1px solid #EF9F27'; box.style.color='#633806'
-    box.textContent = '⚠️ Network error — check your internet connection and try again.'
-  }
-}
-
-// ═══════════════════════════════════════════════
-// CSV EXPORT
-// ═══════════════════════════════════════════════
-function exportCSV(type){
-  let rows, headers, filename
-  if(type==='treadmill'){
-    headers = ['Date','Time','Distance (km)','Calories','Duration (min)','Avg Speed','Notes']
-    rows = getData('treadmill').map(r=>[r.date,r.time,r.km,r.cal,r.dur,r.spd,r.notes||''])
-    filename = 'treadmill_log.csv'
-  } else {
-    headers = ['Date','Time','Muscle Group','Exercises','Sets','Reps','Energy','Notes']
-    rows = getData('workouts').map(r=>[r.date,r.time,r.muscle,r.exercises||'',r.sets||'',r.reps||'',r.energy||'',r.notes||''])
-    filename = 'workout_log.csv'
-  }
-  const csv = [headers, ...rows].map(r=>r.map(v=>'"'+(v||'').toString().replace(/"/g,'""')+'"').join(',')).join('\n')
-  const blob = new Blob([csv], {type:'text/csv'})
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = filename; a.click()
-  URL.revokeObjectURL(url)
-  showToast('✅ CSV downloaded!')
-}
-
-function clearData(){
-  if(confirm('Delete ALL your fitness data? This cannot be undone.')){
-    localStorage.removeItem('treadmill')
-    localStorage.removeItem('workouts')
-    updateDashboard()
-    showToast('🗑️ All data cleared')
-  }
+  const existing = q.find(r => String(r.id) === String(record.id))
+  if(!existing) q.push({...record, _synced: false, _queuedAt: new Date().toISOString()})
+  localStorage.setItem('syncQueue', JSON.stringify(q))
 }
 
 // ═══════════════════════════════════════════════
@@ -1080,16 +899,15 @@ async function syncAllNow(){
   const btn = document.getElementById('sync-now-btn')
 
   if(!url){
-    showToast('⚠️ No Sheet URL configured — add it in Settings')
+    showToast('⚠️ No Sheet URL — add it in Settings')
     return
   }
 
-  // gather everything not yet synced
-  const treadmill = getData('treadmill')
-  const workouts  = getData('workouts')
+  const treadmill = getData('treadmill').map(r=>({...r, type:'treadmill'}))
+  const workouts  = getData('workouts').map(r=>({...r, type:'workout'}))
   const q = JSON.parse(localStorage.getItem('syncQueue') || '[]')
   const syncedIds = new Set(q.filter(r=>r._synced).map(r=>String(r.id)))
-  const allRecords = [...treadmill.map(r=>({...r,type:'treadmill'})), ...workouts.map(r=>({...r,type:'workout'}))]
+  const allRecords = [...treadmill, ...workouts]
   const toSync = allRecords.filter(r => !syncedIds.has(String(r.id)))
 
   if(!toSync.length){
@@ -1098,36 +916,34 @@ async function syncAllNow(){
     return
   }
 
-  if(btn){ btn.disabled = true; btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite"></div> Syncing ' + toSync.length + ' records...' }
-
-  let successCount = 0
-  const newQueue = [...q]
-
-  for(const record of toSync){
-    try{
-      await fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {'Content-Type':'text/plain'},
-        body: JSON.stringify(record)
-      })
-      successCount++
-      newQueue.push({...record, _synced:true, _syncedAt: new Date().toISOString()})
-    }catch(e){
-      newQueue.push({...record, _synced:false, _failedAt: new Date().toISOString()})
-    }
-    // small delay to avoid rate limiting
-    await new Promise(res => setTimeout(res, 300))
+  if(btn){
+    btn.disabled = true
+    btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></div>&nbsp; Syncing 0 / ' + toSync.length + '...'
   }
 
-  localStorage.setItem('syncQueue', JSON.stringify(newQueue))
+  let successCount = 0
+  for(let i = 0; i < toSync.length; i++){
+    const record = toSync[i]
+    if(btn) btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;display:inline-block"></div>&nbsp; Syncing ' + (i+1) + ' / ' + toSync.length + '...'
+    try{
+      await sendViaJSONP(url, record)
+      markSynced(record.id)
+      successCount++
+    }catch(e){
+      queueForRetry(record)
+    }
+    await new Promise(res => setTimeout(res, 400))
+  }
+
   if(successCount > 0) localStorage.setItem('lastSyncTime', new Date().toISOString())
-
-  if(btn){ btn.disabled = false; btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg> Sync All to Google Sheet' }
-
+  if(btn){
+    btn.disabled = false
+    btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15"/></svg> Sync All to Google Sheet'
+  }
   showToast('✅ Synced ' + successCount + ' of ' + toSync.length + ' records!')
   updateSyncCard()
 }
+
 
 // ═══════════════════════════════════════════════
 // INIT
