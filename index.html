@@ -125,6 +125,7 @@ textarea.form-input{resize:vertical;min-height:80px}
 
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
+<div id="sync-status" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99;padding:8px 16px;font-size:12px;font-weight:500;text-align:center;transition:all .3s"></div>
 
 <!-- ═══════════════ SCREEN: DASHBOARD ═══════════════ -->
 <div class="screen active" id="screen-dashboard">
@@ -345,10 +346,11 @@ textarea.form-input{resize:vertical;min-height:80px}
     </div>
     <div class="card-title" style="margin-top:16px">Google Sheets Webhook URL</div>
     <div class="form-group">
-      <input class="form-input" type="url" id="sheet-url" placeholder="https://script.google.com/..."/>
-      <small style="font-size:12px;color:var(--gray);margin-top:4px;display:block">We will set this up in Stage 4. Leave blank for now.</small>
+      <input class="form-input" type="url" id="sheet-url" placeholder="https://script.google.com/macros/s/.../exec"/>
+      <small style="font-size:12px;color:var(--gray);margin-top:4px;display:block">Paste your Google Apps Script deployment URL here. Deploy from Extensions → Apps Script in your Google Sheet.</small>
     </div>
     <button class="btn btn-primary" onclick="saveSettings()" style="margin-bottom:10px">Save Settings</button>
+    <button class="btn btn-secondary" onclick="retrySyncAll()" style="margin-bottom:10px">🔄 Retry Failed Syncs</button>
     <button class="btn btn-secondary" onclick="testGeminiKey()">🔍 Test Gemini Key</button>
     <div id="key-test-result" style="margin-top:10px;font-size:13px;display:none;padding:10px;border-radius:8px"></div>
   </div>
@@ -732,17 +734,85 @@ async function saveWorkout(){
 // ═══════════════════════════════════════════════
 // SYNC TO GOOGLE SHEET
 // ═══════════════════════════════════════════════
+const HARDCODED_SHEET_URL = 'https://script.google.com/macros/s/AKfycbzOTgPxnaknbw4iy3YBSXQEGPbiaYgAtc_q0h56wj7pkWjN6EsJ3fKZKQ9j7n8oO4qW/exec'
+
 async function syncToSheet(record){
   const settings = getSettings()
-  if(!settings.sheetUrl) return
+  const url = settings.sheetUrl || HARDCODED_SHEET_URL
+  if(!url){ 
+    updateSyncStatus('not_configured')
+    return 
+  }
+  updateSyncStatus('syncing')
   try{
-    await fetch(settings.sheetUrl, {
+    // no-cors mode needed for Apps Script from browser
+    await fetch(url, {
       method:'POST',
       mode:'no-cors',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'text/plain'},
       body:JSON.stringify(record)
     })
-  }catch(e){ /* silent fail — data already saved locally */ }
+    // no-cors means we can't read the response, but if no error thrown it worked
+    updateSyncStatus('success')
+    addToSyncQueue(record, true)
+  }catch(e){
+    // save to queue for retry
+    updateSyncStatus('failed')
+    addToSyncQueue(record, false)
+  }
+}
+
+function updateSyncStatus(status){
+  const el = document.getElementById('sync-status')
+  if(!el) return
+  const map = {
+    'syncing':  {text:'⏳ Syncing to Google Sheet...', color:'#185FA5', bg:'#E6F1FB'},
+    'success':  {text:'✅ Synced to Google Sheet',     color:'#085041', bg:'#E1F5EE'},
+    'failed':   {text:'⚠️ Sync failed — saved locally', color:'#633806', bg:'#FAEEDA'},
+    'not_configured': {text:'ℹ️ No Sheet URL — data saved locally only', color:'#5F5E5A', bg:'#F1EFE8'},
+    'pending':  {text:'🔄 Pending sync items',          color:'#3C3489', bg:'#EEEDFE'},
+  }
+  const s = map[status] || map['not_configured']
+  el.textContent = s.text
+  el.style.color = s.color
+  el.style.background = s.bg
+  el.style.display = 'block'
+  if(status === 'success') setTimeout(()=>{ if(el) el.style.display='none' }, 4000)
+}
+
+function addToSyncQueue(record, synced){
+  const q = JSON.parse(localStorage.getItem('syncQueue') || '[]')
+  q.push({...record, _synced: synced, _queuedAt: new Date().toISOString()})
+  localStorage.setItem('syncQueue', JSON.stringify(q))
+}
+
+async function retrySyncAll(){
+  const settings = getSettings()
+  const url = settings.sheetUrl || HARDCODED_SHEET_URL
+  if(!url){ showToast('⚠️ Add your Sheet URL in Settings first'); return }
+  const q = JSON.parse(localStorage.getItem('syncQueue') || '[]')
+  const unsynced = q.filter(r => !r._synced)
+  if(!unsynced.length){ showToast('✅ Everything is already synced!'); return }
+  showToast(`⏳ Retrying ${unsynced.length} items...`)
+  let successCount = 0
+  for(const record of unsynced){
+    try{
+      await fetch(url, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify(record)
+      })
+      record._synced = true
+      successCount++
+    }catch(e){}
+  }
+  // update queue
+  const updated = q.map(r => {
+    const found = unsynced.find(u => u.id === r.id)
+    return found ? found : r
+  })
+  localStorage.setItem('syncQueue', JSON.stringify(updated))
+  showToast(`✅ Synced ${successCount} of ${unsynced.length} items`)
 }
 
 // ═══════════════════════════════════════════════
