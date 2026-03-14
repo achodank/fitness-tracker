@@ -342,7 +342,9 @@ textarea.form-input{resize:vertical;min-height:80px}
       <input class="form-input" type="url" id="sheet-url" placeholder="https://script.google.com/..."/>
       <small style="font-size:12px;color:var(--gray);margin-top:4px;display:block">We will set this up in Stage 4. Leave blank for now.</small>
     </div>
-    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+    <button class="btn btn-primary" onclick="saveSettings()" style="margin-bottom:10px">Save Settings</button>
+    <button class="btn btn-secondary" onclick="testGeminiKey()">🔍 Test Gemini Key</button>
+    <div id="key-test-result" style="margin-top:10px;font-size:13px;display:none;padding:10px;border-radius:8px"></div>
   </div>
 
   <div class="card">
@@ -518,47 +520,136 @@ function handlePhoto(event){
   reader.readAsDataURL(file)
 }
 
+function compressImage(base64, callback){
+  const img = new Image()
+  img.onload = function(){
+    const canvas = document.createElement('canvas')
+    let w = img.width, h = img.height
+    const MAX = 1024
+    if(w > MAX || h > MAX){
+      if(w > h){ h = Math.round(h * MAX / w); w = MAX }
+      else { w = Math.round(w * MAX / h); h = MAX }
+    }
+    canvas.width = w; canvas.height = h
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h)
+    const compressed = canvas.toDataURL('image/jpeg', 0.85).split(',')[1]
+    callback(compressed)
+  }
+  img.src = 'data:image/jpeg;base64,' + base64
+}
+
+function showError(msg){
+  const box = document.getElementById('result-box')
+  box.style.display = 'block'
+  box.style.background = '#FAECE7'
+  box.style.borderColor = '#D85A30'
+  box.innerHTML = `<h4 style="color:#993C1D">❌ Could not read photo</h4>
+    <p style="font-size:13px;color:#4A1B0C;margin-top:6px;line-height:1.6">${msg}</p>
+    <p style="font-size:12px;color:#993C1D;margin-top:8px">Please fill in the values manually below ↓</p>
+    <button class="btn btn-secondary" style="margin-top:10px;font-size:13px;padding:8px" onclick="document.getElementById('photo-gallery').click()">🔄 Try a different photo</button>`
+}
+
+function showSuccess(){
+  const box = document.getElementById('result-box')
+  box.style.background = '#E1F5EE'
+  box.style.borderColor = '#1D9E75'
+  box.innerHTML = `<h4 style="color:#085041">✅ Extracted from your photo — edit below if needed</h4>
+    <div class="result-grid">
+      <div class="result-item"><div class="val" id="r-km">-</div><div class="lbl">km</div></div>
+      <div class="result-item"><div class="val" id="r-cal">-</div><div class="lbl">calories</div></div>
+      <div class="result-item"><div class="val" id="r-dur">-</div><div class="lbl">mins</div></div>
+      <div class="result-item"><div class="val" id="r-spd">-</div><div class="lbl">km/h</div></div>
+    </div>
+    <button class="btn btn-secondary" style="margin-top:10px;font-size:13px;padding:8px" onclick="document.getElementById('photo-gallery').click()">🔄 Re-upload a different photo</button>`
+}
+
 async function readWithGemini(base64){
   const settings = getSettings()
+
   if(!settings.geminiKey){
-    showToast('⚠️ Add your Gemini API key in Settings first')
+    showError('No Gemini API key found. Go to <strong>Settings tab</strong> → paste your Gemini API key → tap Save Settings. Then come back and try again.')
+    document.getElementById('ai-loading').style.display = 'none'
+    document.getElementById('result-box').style.display = 'block'
     return
   }
+
   document.getElementById('ai-loading').style.display = 'flex'
   document.getElementById('result-box').style.display = 'none'
-  try{
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.geminiKey}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[
-          {text:"This is a treadmill display screen photo. Extract these exact values shown on the screen: distance in km, calories burned, duration in minutes, average speed in km/h. Return ONLY this format, nothing else: km=X calories=X duration=X speed=X. If a value is not visible use 0."},
-          {inlineData:{mimeType:'image/jpeg',data:base64}}
-        ]}]
-      })
-    })
-    const data = await res.json()
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-    const km = parseFloat(text.match(/km=([\d.]+)/i)?.[1] || 0)
-    const cal = parseInt(text.match(/calories=([\d.]+)/i)?.[1] || 0)
-    const dur = parseInt(text.match(/duration=([\d.]+)/i)?.[1] || 0)
-    const spd = parseFloat(text.match(/speed=([\d.]+)/i)?.[1] || 0)
 
-    document.getElementById('r-km').textContent = km.toFixed(2)
-    document.getElementById('r-cal').textContent = cal
-    document.getElementById('r-dur').textContent = dur
-    document.getElementById('r-spd').textContent = spd.toFixed(1)
-    document.getElementById('result-box').style.display = 'block'
+  compressImage(base64, async function(compressed){
+    try{
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${settings.geminiKey.trim()}`,
+        {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            contents:[{parts:[
+              {text:"Look carefully at this treadmill console display photo. Find and extract these numbers shown on the screen: 1) Distance in km or miles (convert to km if miles), 2) Calories burned, 3) Duration or time elapsed in minutes, 4) Speed in km/h. Return ONLY this exact format with numbers only, no units: km=X calories=X duration=X speed=X. If any value is not visible or not shown on screen, use 0 for that value."},
+              {inlineData:{mimeType:'image/jpeg', data:compressed}}
+            ]}]
+          })
+        }
+      )
 
-    document.getElementById('t-km').value = km.toFixed(2)
-    document.getElementById('t-cal').value = cal
-    document.getElementById('t-dur').value = dur
-    document.getElementById('t-spd').value = spd.toFixed(1)
-    showToast('✅ Treadmill data extracted!')
-  }catch(e){
-    showToast('❌ Could not read photo. Fill in manually.')
-  }
-  document.getElementById('ai-loading').style.display = 'none'
+      if(!res.ok){
+        const err = await res.json().catch(()=>({}))
+        const msg = err?.error?.message || `API error ${res.status}`
+        if(res.status===400) showError(`API key issue: ${msg}. Double-check your Gemini key in Settings — make sure there are no extra spaces.`)
+        else if(res.status===403) showError('API key is invalid or not enabled. Go to <strong>aistudio.google.com</strong> → make sure your key is active and the Gemini API is enabled.')
+        else if(res.status===429) showError('Too many requests. Wait 1 minute and try again. You may have hit the free tier limit.')
+        else showError(`Gemini API returned error ${res.status}: ${msg}`)
+        document.getElementById('ai-loading').style.display = 'none'
+        return
+      }
+
+      const data = await res.json()
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+      if(!text){
+        showError('Gemini could not read the image. Try taking a clearer, closer photo of the treadmill display screen with good lighting.')
+        document.getElementById('ai-loading').style.display = 'none'
+        return
+      }
+
+      const km  = parseFloat(text.match(/km=([\d.]+)/i)?.[1]  || 0)
+      const cal = parseInt(text.match(/calories=([\d.]+)/i)?.[1] || 0)
+      const dur = parseInt(text.match(/duration=([\d.]+)/i)?.[1] || 0)
+      const spd = parseFloat(text.match(/speed=([\d.]+)/i)?.[1] || 0)
+
+      if(km===0 && cal===0 && dur===0){
+        showError('Gemini saw the image but could not find treadmill numbers. Tips: take the photo closer to the screen, make sure the display is lit up, avoid glare. You can fill the values manually below.')
+        document.getElementById('ai-loading').style.display = 'none'
+        return
+      }
+
+      showSuccess()
+      setTimeout(()=>{
+        const rKm = document.getElementById('r-km')
+        const rCal = document.getElementById('r-cal')
+        const rDur = document.getElementById('r-dur')
+        const rSpd = document.getElementById('r-spd')
+        if(rKm) rKm.textContent = km.toFixed(2)
+        if(rCal) rCal.textContent = cal
+        if(rDur) rDur.textContent = dur
+        if(rSpd) rSpd.textContent = spd.toFixed(1)
+      }, 50)
+
+      document.getElementById('t-km').value  = km.toFixed(2)
+      document.getElementById('t-cal').value = cal
+      document.getElementById('t-dur').value = dur
+      document.getElementById('t-spd').value = spd.toFixed(1)
+      showToast('✅ Treadmill data extracted!')
+
+    }catch(e){
+      if(e.name==='TypeError' && e.message.includes('fetch')){
+        showError('Network error — could not reach Gemini API. Check your internet connection and try again.')
+      } else {
+        showError(`Unexpected error: ${e.message}. Please fill in the values manually.`)
+      }
+    }
+    document.getElementById('ai-loading').style.display = 'none'
+  })
 }
 
 // ═══════════════════════════════════════════════
@@ -754,6 +845,35 @@ function saveSettings(){
   }
   localStorage.setItem('settings', JSON.stringify(s))
   showToast('✅ Settings saved!')
+}
+
+async function testGeminiKey(){
+  const key = document.getElementById('gemini-key').value.trim()
+  const box = document.getElementById('key-test-result')
+  box.style.display = 'block'
+  box.style.background = '#E6F1FB'
+  box.style.border = '1px solid #185FA5'
+  box.style.color = '#0C447C'
+  box.textContent = '⏳ Testing your Gemini API key...'
+  if(!key){ box.textContent = '⚠️ Please enter your Gemini key first'; return }
+  try{
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,
+      { method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({contents:[{parts:[{text:'Reply with just the word: working'}]}]}) }
+    )
+    if(res.ok){
+      box.style.background='#E1F5EE'; box.style.border='1px solid #1D9E75'; box.style.color='#085041'
+      box.textContent = '✅ Gemini API key is working! You can now upload treadmill photos.'
+    } else {
+      const err = await res.json().catch(()=>({}))
+      box.style.background='#FAECE7'; box.style.border='1px solid #D85A30'; box.style.color='#4A1B0C'
+      box.textContent = `❌ Key failed (${res.status}): ${err?.error?.message || 'Invalid key'}. Go to aistudio.google.com and create a new key.`
+    }
+  }catch(e){
+    box.style.background='#FAEEDA'; box.style.border='1px solid #EF9F27'; box.style.color='#633806'
+    box.textContent = '⚠️ Network error — check your internet connection and try again.'
+  }
 }
 
 // ═══════════════════════════════════════════════
