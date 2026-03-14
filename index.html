@@ -342,6 +342,69 @@ textarea.form-input{resize:vertical;min-height:80px}
 const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwTFtvRL5I3VKbbFXbThoQlRcYPdou1k8cX2dXxsNgVpLRZ7DGQtAgb8rlbfUX0knVB/exec'
 
 // ═══════════════════════════════════════════
+// DATE HELPERS
+// ═══════════════════════════════════════════
+// Parse YYYY-MM-DD as LOCAL date (avoids UTC midnight -> previous day in IST)
+function parseLocalDate(str){
+  if(!str) return new Date()
+  const parts = String(str).split(/[-\/]/)
+  if(parts.length === 3){
+    return new Date(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2]))
+  }
+  // fallback for other formats
+  const d = new Date(str)
+  return isNaN(d) ? new Date() : d
+}
+
+// Format a YYYY-MM-DD string for display (never shifts timezone)
+function fmtDate(str, opts){
+  const d = parseLocalDate(str)
+  return d.toLocaleDateString('en-IN', opts || {day:'numeric', month:'short'})
+}
+
+// Normalise a date value coming from Google Sheet (could be Date object, string, number)
+function normaliseSheetDate(val){
+  if(!val) return ''
+  // Google Sheets serial number (days since Dec 30 1899)
+  if(typeof val === 'number'){
+    const d = new Date(Date.UTC(1899,11,30) + val * 86400000)
+    const pad = n => String(n).padStart(2,'0')
+    return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate())
+  }
+  const s = String(val)
+  // already YYYY-MM-DD
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10)
+  // DD/MM/YYYY
+  if(/^\d{2}\/\d{2}\/\d{4}/.test(s)){
+    const p = s.split('/')
+    return p[2]+'-'+p[1]+'-'+p[0]
+  }
+  // try parsing as date string
+  const d = new Date(s)
+  if(!isNaN(d)){
+    const pad = n => String(n).padStart(2,'0')
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())
+  }
+  return s
+}
+
+// Normalise time value from Sheet
+function normaliseSheetTime(val){
+  if(!val) return ''
+  const s = String(val).trim()
+  // HH:MM or HH:MM:SS
+  if(/^\d{1,2}:\d{2}/.test(s)) return s.slice(0,5)
+  // Google Sheets time as decimal fraction of day
+  if(typeof val === 'number' && val < 1){
+    const totalMins = Math.round(val * 1440)
+    const h = Math.floor(totalMins/60)
+    const m = totalMins % 60
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')
+  }
+  return s
+}
+
+// ═══════════════════════════════════════════
 // STORAGE HELPERS
 // ═══════════════════════════════════════════
 function getData(key)    { try{ return JSON.parse(localStorage.getItem(key)||'[]') }catch(e){ return [] } }
@@ -411,15 +474,17 @@ function renderChart(){
   if(view === '7d'){
     for(let i=6;i>=0;i--){
       const d=new Date(); d.setDate(d.getDate()-i)
-      const k=d.toISOString().split('T')[0]
-      labels.push(d.getDate()+' '+d.toLocaleDateString('en',{month:'short'}))
+      const _p=n=>String(n).padStart(2,'0')
+      const k=d.getFullYear()+'-'+_p(d.getMonth()+1)+'-'+_p(d.getDate())
+      labels.push(d.getDate()+' '+d.toLocaleDateString('en-IN',{month:'short'}))
       kms.push(parseFloat(tm.filter(r=>r.date===k).reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(2)))
     }
     rangeLabel = 'Last 7 days'
   } else if(view === '30d'){
     for(let i=29;i>=0;i--){
       const d=new Date(); d.setDate(d.getDate()-i)
-      const k=d.toISOString().split('T')[0]
+      const _p2=n=>String(n).padStart(2,'0')
+      const k=d.getFullYear()+'-'+_p2(d.getMonth()+1)+'-'+_p2(d.getDate())
       labels.push(i%5===0||i===0 ? d.getDate()+'/'+( d.getMonth()+1) : '')
       kms.push(parseFloat(tm.filter(r=>r.date===k).reduce((s,r)=>s+parseFloat(r.km||0),0).toFixed(2)))
     }
@@ -431,7 +496,7 @@ function renderChart(){
       const yr=d.getFullYear(), mo=d.getMonth()
       const monthKm = tm.filter(r=>{
         if(!r.date) return false
-        const rd=new Date(r.date); return rd.getFullYear()===yr && rd.getMonth()===mo
+        const rd=parseLocalDate(r.date); return rd.getFullYear()===yr && rd.getMonth()===mo
       }).reduce((s,r)=>s+parseFloat(r.km||0),0)
       labels.push(d.toLocaleDateString('en',{month:'short',year:'2-digit'}))
       kms.push(parseFloat(monthKm.toFixed(2)))
@@ -546,7 +611,7 @@ function renderGymTimeVisual(){
   if(recent.length){
     html += '<div style="font-size:11px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Recent visits</div>'
     recent.forEach(v=>{
-      const d = v.date ? new Date(v.date).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}) : '—'
+      const d = v.date ? fmtDate(v.date,{weekday:'short',day:'numeric',month:'short'}) : '—'
       const hr = v.hour
       const isEarly = hr < 9
       const dot = isEarly ? '#1D9E75' : hr < 14 ? '#EF9F27' : '#D85A30'
@@ -579,7 +644,8 @@ function updateDashboard(){
   const dn=['M','T','W','T','F','S','S']
   for(let i=6;i>=0;i--){
     const d=new Date(); d.setDate(d.getDate()-i)
-    const k=d.toISOString().split('T')[0]
+    const pad=n=>String(n).padStart(2,'0')
+    const k=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())
     const ok=tm.some(r=>r.date===k)||wo.some(r=>r.date===k)
     const dot=document.createElement('div')
     dot.className='streak-dot'+(ok?' done':(i===0?' today':''))
@@ -612,7 +678,7 @@ function updateSyncStats(){
   if(el('st-last')){
     if(last){
       const d=new Date(last)
-      el('st-last').textContent = d.toLocaleDateString('en-IN',{day:'numeric',month:'short'})+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})
+      el('st-last').textContent = d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'2-digit'})+' '+d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})
     } else {
       el('st-last').textContent = 'Never'
     }
@@ -712,10 +778,13 @@ function handlePhoto(e){
   const file = e.target.files[0]
   if(!file) return
 
-  // capture system timestamp from file metadata
+  // capture system timestamp from file metadata (local time, not UTC)
   const fileDate = file.lastModified ? new Date(file.lastModified) : new Date()
-  const imgTimestamp = fileDate.toTimeString().slice(0,5)  // HH:MM
-  const imgDate      = fileDate.toISOString().split('T')[0] // YYYY-MM-DD
+
+  // use LOCAL date parts to avoid UTC offset shifting the date (important for IST +5:30)
+  const pad = n => String(n).padStart(2,'0')
+  const imgDate      = fileDate.getFullYear()+'-'+pad(fileDate.getMonth()+1)+'-'+pad(fileDate.getDate())
+  const imgTimestamp = pad(fileDate.getHours())+':'+pad(fileDate.getMinutes())
 
   // auto-fill date and time from photo file timestamp
   document.getElementById('t-date').value = imgDate
@@ -908,11 +977,11 @@ function renderHistory(){
   const tm = getData('treadmill')
   const wo = getData('workouts')
   const all = [...tm.map(r=>({...r,type:'treadmill'})),...wo.map(r=>({...r,type:'workout'}))]
-    .sort((a,b)=>new Date(b.date+' '+(b.time||'00:00'))-new Date(a.date+' '+(a.time||'00:00')))
+    .sort((a,b)=>{ const da=parseLocalDate(a.date), db=parseLocalDate(b.date); return db-da || (b.time||'').localeCompare(a.time||'') })
   const el = document.getElementById('history-list')
   if(!all.length){ el.innerHTML='<div class="empty"><p>No sessions yet.<br>Start logging!</p></div>'; return }
   el.innerHTML = all.map(r=>{
-    const dt = r.date ? new Date(r.date).toLocaleDateString('en-IN',{day:'numeric',month:'short'}) : ''
+    const dt = r.date ? fmtDate(r.date) : ''
     if(r.type==='treadmill') return `<div class="history-item">
       <div class="history-icon" style="background:var(--blue-light)">🏃</div>
       <div class="history-info"><div class="history-title">${r.km} km · ${r.cal||0} cal</div><div class="history-sub">${r.dur||0} mins · ${r.spd||0} km/h${r.notes?' · '+r.notes:''}</div></div>
@@ -1085,8 +1154,19 @@ async function pullFromSheet(){
       document.head.appendChild(sc)
     })
 
-    const treadmill = data.treadmill || []
-    const workouts  = data.workouts  || []
+    // normalise dates/times from Sheet format to YYYY-MM-DD / HH:MM
+    const treadmill = (data.treadmill || []).map(r => ({
+      ...r,
+      date: normaliseSheetDate(r.date),
+      time: normaliseSheetTime(r.time),
+      imgTimestamp: normaliseSheetTime(r.time),
+      imgDate: normaliseSheetDate(r.date)
+    }))
+    const workouts = (data.workouts || []).map(r => ({
+      ...r,
+      date: normaliseSheetDate(r.date),
+      time: normaliseSheetTime(r.time)
+    }))
 
     if(!treadmill.length && !workouts.length){
       statusEl.style.background = '#FAEEDA'
