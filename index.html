@@ -300,6 +300,17 @@ textarea.form-input{resize:vertical;min-height:80px}
   </div>
 
   <div class="card">
+    <div class="card-title">Reverse Sync — Pull from Google Sheet</div>
+    <div class="info-box amber" style="margin-bottom:12px;font-size:12px">
+      Use this if you edited or deleted records in Google Sheet. This will replace your local app data with whatever is in the Sheet.
+    </div>
+    <button class="btn btn-blue btn-gap" id="btn-pull" onclick="pullFromSheet()">
+      ⬇️ Pull Data from Google Sheet
+    </button>
+    <div id="pull-status" style="display:none;margin-top:10px;padding:10px;border-radius:8px;font-size:13px"></div>
+  </div>
+
+  <div class="card">
     <div class="card-title">Danger Zone</div>
     <button class="btn btn-coral" id="btn-clear" onclick="clearData()">🗑️ Clear All Data</button>
   </div>
@@ -328,7 +339,7 @@ textarea.form-input{resize:vertical;min-height:80px}
 // ═══════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════
-const SHEET_URL = 'https://script.google.com/macros/s/AKfycbx2V0FNir02_asMNj8_fKKlpo_NqtB49MyD0dc6s0mQXIZ9H5ZfuMxcMu-dKhJVqHc8/exec'
+const SHEET_URL = 'https://script.google.com/macros/s/AKfycbwTFtvRL5I3VKbbFXbThoQlRcYPdou1k8cX2dXxsNgVpLRZ7DGQtAgb8rlbfUX0knVB/exec'
 
 // ═══════════════════════════════════════════
 // STORAGE HELPERS
@@ -588,7 +599,7 @@ function updateSyncStats(){
   const total = tm.length + wo.length
   const q = JSON.parse(localStorage.getItem('syncQ')||'[]')
   const synced  = q.filter(r=>r._ok).length
-  const pending = total - synced
+  const pending = Math.max(0, total - synced)
   const last    = localStorage.getItem('lastSync')
 
   const el = (id)=>document.getElementById(id)
@@ -714,11 +725,6 @@ function handlePhoto(e){
   window._imgTimestamp = imgTimestamp
   window._imgDate      = imgDate
 
-  // show timestamp info
-  const formattedTime = fileDate.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true})
-  const formattedDate = fileDate.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short',year:'numeric'})
-  showToast('📸 Photo taken: '+formattedDate+' at '+formattedTime)
-
   const reader = new FileReader()
   reader.onload = function(ev){
     const b64 = ev.target.result
@@ -788,7 +794,7 @@ async function readWithGemini(b64){
           </div>
           <button class="btn btn-secondary" style="margin-top:10px;font-size:13px;padding:8px" onclick="document.getElementById('photo-gallery').click()">🔄 Try different photo</button>`,
           '#E1F5EE','#1D9E75')
-        showToast('✅ Photo read successfully!')
+        // photo read silently — fields already filled
         document.getElementById('ai-loading').style.display='none'
         return
       }catch(e){ lastErr=e.message; continue }
@@ -986,8 +992,18 @@ function clearData(){
   localStorage.removeItem('workouts')
   localStorage.removeItem('syncQ')
   localStorage.removeItem('lastSync')
+  // destroy chart before update to avoid canvas reuse error
+  if(weeklyChart){ weeklyChart.destroy(); weeklyChart = null }
+  window._imgTimestamp = null
+  window._imgDate = null
+  currentChartView = '7d'
+  // reset chart view buttons
+  document.querySelectorAll('.chart-view-btn').forEach(b=>b.classList.remove('active'))
+  const btn7d = document.getElementById('btn-view-7d')
+  if(btn7d) btn7d.classList.add('active')
   updateDashboard()
-  showToast('🗑️ All data cleared')
+  setNow('t'); setNow('w')
+  showToast('✅ All data cleared')
 }
 
 // ═══════════════════════════════════════════
@@ -1031,6 +1047,85 @@ async function getMotivation(){
   }
   btn.disabled=false
   btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
+}
+
+// ═══════════════════════════════════════════
+// REVERSE SYNC — PULL FROM SHEET
+// ═══════════════════════════════════════════
+async function pullFromSheet(){
+  const url = getSettings().sheetUrl || SHEET_URL
+  const btn = document.getElementById('btn-pull')
+  const statusEl = document.getElementById('pull-status')
+
+  btn.disabled = true
+  btn.textContent = '⏳ Pulling from Google Sheet...'
+  statusEl.style.display = 'block'
+  statusEl.style.background = '#E6F1FB'
+  statusEl.style.border = '1px solid #185FA5'
+  statusEl.style.color = '#0C447C'
+  statusEl.textContent = '⏳ Connecting to Google Sheet...'
+
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const cb = 'pull_' + Date.now()
+      const timer = setTimeout(() => {
+        delete window[cb]
+        if(sc.parentNode) sc.parentNode.removeChild(sc)
+        reject(new Error('Timeout — could not reach Google Sheet'))
+      }, 15000)
+      window[cb] = function(res) {
+        clearTimeout(timer)
+        delete window[cb]
+        if(sc.parentNode) sc.parentNode.removeChild(sc)
+        res.status === 'success' ? resolve(res) : reject(new Error(res.message || 'Pull failed'))
+      }
+      const sc = document.createElement('script')
+      sc.src = url + '?callback=' + cb + '&action=pull'
+      sc.onerror = () => { clearTimeout(timer); delete window[cb]; reject(new Error('Could not reach Sheet')) }
+      document.head.appendChild(sc)
+    })
+
+    const treadmill = data.treadmill || []
+    const workouts  = data.workouts  || []
+
+    if(!treadmill.length && !workouts.length){
+      statusEl.style.background = '#FAEEDA'
+      statusEl.style.border = '1px solid #EF9F27'
+      statusEl.style.color = '#633806'
+      statusEl.textContent = '⚠️ Sheet returned no data. Make sure your Treadmill and Workouts tabs have data.'
+      btn.disabled = false
+      btn.textContent = '⬇️ Pull Data from Google Sheet'
+      return
+    }
+
+    // replace local data
+    setData('treadmill', treadmill)
+    setData('workouts',  workouts)
+
+    // rebuild sync queue — mark everything as synced since it came from sheet
+    const newQ = []
+    treadmill.forEach(r => newQ.push({id:String(r.id||r.date+r.time), _ok:true}))
+    workouts.forEach(r  => newQ.push({id:String(r.id||r.date+r.time), _ok:true}))
+    localStorage.setItem('syncQ', JSON.stringify(newQ))
+    localStorage.setItem('lastSync', new Date().toISOString())
+
+    statusEl.style.background = '#E1F5EE'
+    statusEl.style.border = '1px solid #1D9E75'
+    statusEl.style.color = '#085041'
+    statusEl.textContent = '✅ Pulled ' + treadmill.length + ' treadmill + ' + workouts.length + ' workout records from Sheet!'
+
+    if(weeklyChart){ weeklyChart.destroy(); weeklyChart = null }
+    updateDashboard()
+
+  } catch(e) {
+    statusEl.style.background = '#FAECE7'
+    statusEl.style.border = '1px solid #D85A30'
+    statusEl.style.color = '#4A1B0C'
+    statusEl.textContent = '❌ ' + e.message + '. Make sure your Apps Script is updated with the pull action.'
+  }
+
+  btn.disabled = false
+  btn.textContent = '⬇️ Pull Data from Google Sheet'
 }
 
 // ═══════════════════════════════════════════
