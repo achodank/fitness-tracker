@@ -6,7 +6,9 @@
 <meta name="theme-color" content="#1D9E75"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
-<title>My Fitness Tracker</title>
+<title>My Fitness Tracker v4</title>
+<meta http-equiv="cache-control" content="no-cache"/>
+<meta http-equiv="pragma" content="no-cache"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -495,7 +497,7 @@ async function syncAllNow(){
   if(ok===toSync.length){
     showSyncBar('✅ All '+ok+' records synced to Google Sheet!','#085041','#E1F5EE')
   } else {
-    showSyncBar('⚠️ Synced '+ok+'/'+toSync.length+' — '+（toSync.length-ok)+' failed','#633806','#FAEEDA')
+    showSyncBar('⚠️ Synced '+ok+'/'+toSync.length+' — '+(toSync.length-ok)+' failed','#633806','#FAEEDA')
   }
   hideSyncBar()
   updateSyncStats()
