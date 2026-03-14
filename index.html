@@ -113,6 +113,9 @@ textarea.form-input{resize:vertical;min-height:80px}
 .badge{font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px}
 .badge-green{background:var(--green-light);color:var(--green-dark)}
 .badge-amber{background:var(--amber-light);color:#633806}
+.muscle-chip{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;font-size:14px;color:var(--gray-dark);background:var(--white);transition:all .15s;user-select:none}
+.muscle-chip input[type=checkbox]{width:16px;height:16px;accent-color:var(--green);cursor:pointer;flex-shrink:0}
+.muscle-chip.selected{border-color:var(--green);background:var(--green-light);color:var(--green-dark);font-weight:500}
 /* CONFIG warning */
 .config-warning{background:#FAEEDA;border:1px solid var(--amber);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;font-size:13px;color:#633806;line-height:1.5}
 .config-warning strong{display:block;margin-bottom:4px}
@@ -260,18 +263,21 @@ textarea.form-input{resize:vertical;min-height:80px}
       <input class="form-input" type="time" id="w-time"/>
     </div>
     <div class="form-group">
-      <label class="form-label">Muscle Group</label>
-      <select class="form-input" id="w-muscle">
-        <option value="">Select muscle group</option>
-        <option>Chest</option>
-        <option>Back</option>
-        <option>Legs</option>
-        <option>Shoulders</option>
-        <option>Arms (Biceps + Triceps)</option>
-        <option>Core / Abs</option>
-        <option>Full Body</option>
-        <option>Cardio Only</option>
-      </select>
+      <label class="form-label">Muscle Group <span style="font-size:11px;color:var(--gray);font-weight:400">(tick all you trained today)</span></label>
+      <div id="muscle-checkboxes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+        <label class="muscle-chip"><input type="checkbox" value="Chest" onchange="toggleChip(this)"/> Chest</label>
+        <label class="muscle-chip"><input type="checkbox" value="Back" onchange="toggleChip(this)"/> Back</label>
+        <label class="muscle-chip"><input type="checkbox" value="Legs" onchange="toggleChip(this)"/> Legs</label>
+        <label class="muscle-chip"><input type="checkbox" value="Shoulders" onchange="toggleChip(this)"/> Shoulders</label>
+        <label class="muscle-chip"><input type="checkbox" value="Biceps" onchange="toggleChip(this)"/> Biceps</label>
+        <label class="muscle-chip"><input type="checkbox" value="Triceps" onchange="toggleChip(this)"/> Triceps</label>
+        <label class="muscle-chip"><input type="checkbox" value="Core / Abs" onchange="toggleChip(this)"/> Core / Abs</label>
+        <label class="muscle-chip"><input type="checkbox" value="Forearms" onchange="toggleChip(this)"/> Forearms</label>
+        <label class="muscle-chip"><input type="checkbox" value="Glutes" onchange="toggleChip(this)"/> Glutes</label>
+        <label class="muscle-chip"><input type="checkbox" value="Cardio Only" onchange="toggleChip(this)"/> Cardio Only</label>
+        <label class="muscle-chip" style="grid-column:1/-1"><input type="checkbox" value="Full Body" onchange="toggleChip(this)"/> Full Body</label>
+      </div>
+      <div id="muscle-summary" style="margin-top:8px;font-size:12px;color:var(--green-dark);font-weight:500;min-height:16px"></div>
     </div>
     <div class="form-group">
       <label class="form-label">Exercises Done</label>
@@ -697,14 +703,14 @@ async function saveTreadmill(){
 async function saveWorkout(){
   const date = document.getElementById('w-date').value
   const time = document.getElementById('w-time').value
-  const muscle = document.getElementById('w-muscle').value
+  const muscle = Array.from(document.querySelectorAll('#muscle-checkboxes input:checked')).map(c=>c.value).join(', ')
   const exercises = document.getElementById('w-exercises').value
   const sets = document.getElementById('w-sets').value
   const reps = document.getElementById('w-reps').value
   const energy = document.getElementById('w-energy').value
   const notes = document.getElementById('w-notes').value
 
-  if(!date||!muscle){ showToast('⚠️ Date and muscle group are required'); return }
+  if(!date||!muscle){ showToast('⚠️ Please select at least one muscle group'); return }
 
   const record = {id:Date.now(), date, time, muscle, exercises, sets, reps, energy, notes, type:'workout'}
   const data = getData('workouts')
@@ -714,7 +720,8 @@ async function saveWorkout(){
   await syncToSheet(record)
   showToast('✅ Workout saved!')
 
-  document.getElementById('w-muscle').value=''
+  document.querySelectorAll('#muscle-checkboxes input').forEach(c=>{c.checked=false;c.closest('.muscle-chip').classList.remove('selected')})
+  document.getElementById('muscle-summary').textContent=''
   document.getElementById('w-exercises').value=''
   document.getElementById('w-sets').value=''
   document.getElementById('w-reps').value=''
@@ -787,6 +794,14 @@ async function getMotivation(){
   }
   btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg> Motivate Me!'
   btn.disabled = false
+}
+
+function toggleChip(cb){
+  const chip = cb.closest('.muscle-chip')
+  chip.classList.toggle('selected', cb.checked)
+  const selected = Array.from(document.querySelectorAll('#muscle-checkboxes input:checked')).map(c=>c.value)
+  const summary = document.getElementById('muscle-summary')
+  summary.textContent = selected.length ? '✅ Selected: ' + selected.join(' + ') : ''
 }
 
 // ═══════════════════════════════════════════════
